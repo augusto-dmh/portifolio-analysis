@@ -33,6 +33,7 @@ class UserFactory extends Factory
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'two_factor_confirmed_at' => null,
+            'role' => 'viewer',
         ];
     }
 
@@ -55,6 +56,27 @@ class UserFactory extends Factory
             'two_factor_secret' => encrypt('secret'),
             'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code-1'])),
             'two_factor_confirmed_at' => now(),
+        ]);
+    }
+
+    public function asAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'admin',
+        ]);
+    }
+
+    public function asAnalyst(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'analyst',
+        ]);
+    }
+
+    public function asViewer(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'viewer',
         ]);
     }
 }
