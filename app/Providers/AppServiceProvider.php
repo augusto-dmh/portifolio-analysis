@@ -2,9 +2,13 @@
 
 namespace App\Providers;
 
+use App\Enums\UserRole;
+use App\Models\User;
+use App\Policies\UserPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -24,6 +28,21 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        $this->registerAuthorization();
+    }
+
+    private function registerAuthorization(): void
+    {
+        Gate::policy(User::class, UserPolicy::class);
+
+        Gate::define('admin', fn (User $user): bool => $user->role === UserRole::Admin);
+
+        Gate::define('analyst-or-above', fn (User $user): bool => in_array($user->role, [
+            UserRole::Admin,
+            UserRole::Analyst,
+        ], true));
+
+        Gate::define('viewer-or-above', fn (User $user): bool => $user->role instanceof UserRole);
     }
 
     /**
