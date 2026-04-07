@@ -1,5 +1,11 @@
-import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, LayoutGrid } from 'lucide-react';
+import { Link, usePage } from '@inertiajs/react';
+import {
+    BookOpen,
+    FolderGit2,
+    LayoutGrid,
+    SlidersHorizontal,
+    Users,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -14,15 +20,10 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
-import type { NavItem } from '@/types';
-
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Dashboard',
-        href: dashboard(),
-        icon: LayoutGrid,
-    },
-];
+import { index as classificationRulesIndex } from '@/routes/classification-rules';
+import { index as submissionsIndex } from '@/routes/submissions';
+import { index as usersIndex } from '@/routes/users';
+import type { Auth, NavItem } from '@/types';
 
 const footerNavItems: NavItem[] = [
     {
@@ -38,6 +39,36 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    const { auth } = usePage().props as { auth: Auth };
+
+    const mainNavItems: NavItem[] = [
+        {
+            title: 'Dashboard',
+            href: dashboard(),
+            icon: LayoutGrid,
+        },
+        {
+            title: 'Submissions',
+            href: submissionsIndex(),
+            icon: FolderGit2,
+        },
+    ];
+
+    if (auth.user.role === 'admin') {
+        mainNavItems.push(
+            {
+                title: 'Classification Rules',
+                href: classificationRulesIndex(),
+                icon: SlidersHorizontal,
+            },
+            {
+                title: 'Users',
+                href: usersIndex(),
+                icon: Users,
+            },
+        );
+    }
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
