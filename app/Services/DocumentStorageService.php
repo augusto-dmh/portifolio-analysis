@@ -56,6 +56,18 @@ class DocumentStorageService
 
     private function isProcessableExtension(string $extension): bool
     {
-        return in_array($extension, ['pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'xls'], true);
+        return in_array(
+            $extension,
+            config('portfolio.upload.accepted_extensions', [
+                'pdf',
+                'png',
+                'jpg',
+                'jpeg',
+                'csv',
+                'xlsx',
+                'xls',
+            ]),
+            true,
+        );
     }
 }
