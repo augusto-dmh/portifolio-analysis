@@ -1,5 +1,12 @@
-import { Head, Link } from '@inertiajs/react';
-import { Clock3, Eye, Files, Plus, ShieldCheck } from 'lucide-react';
+import { Form, Head, Link } from '@inertiajs/react';
+import {
+    CalendarRange,
+    Eye,
+    Files,
+    Filter,
+    Plus,
+    ShieldCheck,
+} from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +17,8 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import {
@@ -31,13 +40,21 @@ type SubmissionSummary = {
     ownerName: string | null;
 };
 
+type SubmissionFilters = {
+    status: string;
+    dateFrom: string;
+    dateTo: string;
+};
+
 export default function SubmissionsIndex({
     submissions,
     canCreate,
+    filters,
     status,
 }: {
     submissions: SubmissionSummary[];
     canCreate: boolean;
+    filters: SubmissionFilters;
     status?: string;
 }) {
     return (
@@ -91,10 +108,99 @@ export default function SubmissionsIndex({
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
+                            <Form
+                                {...submissionsIndex.form()}
+                                className="mb-6 grid gap-4 rounded-2xl border border-sidebar-border/70 bg-muted/20 p-4 lg:grid-cols-[1fr_1fr_1fr_auto_auto]"
+                                options={{
+                                    preserveScroll: true,
+                                    preserveState: true,
+                                }}
+                            >
+                                {({ processing }) => (
+                                    <>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="status">
+                                                Status
+                                            </Label>
+                                            <select
+                                                id="status"
+                                                name="status"
+                                                defaultValue={filters.status}
+                                                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                                            >
+                                                <option value="">
+                                                    Any status
+                                                </option>
+                                                <option value="pending">
+                                                    Pending
+                                                </option>
+                                                <option value="processing">
+                                                    Processing
+                                                </option>
+                                                <option value="partially_complete">
+                                                    Partially Complete
+                                                </option>
+                                                <option value="completed">
+                                                    Completed
+                                                </option>
+                                                <option value="failed">
+                                                    Failed
+                                                </option>
+                                            </select>
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="date_from">
+                                                From
+                                            </Label>
+                                            <Input
+                                                id="date_from"
+                                                name="date_from"
+                                                type="date"
+                                                defaultValue={filters.dateFrom}
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="date_to">To</Label>
+                                            <Input
+                                                id="date_to"
+                                                name="date_to"
+                                                type="date"
+                                                defaultValue={filters.dateTo}
+                                            />
+                                        </div>
+
+                                        <div className="flex items-end">
+                                            <Button
+                                                disabled={processing}
+                                                className="w-full lg:w-auto"
+                                            >
+                                                <Filter className="size-4" />
+                                                Apply filters
+                                            </Button>
+                                        </div>
+
+                                        <div className="flex items-end">
+                                            <Button
+                                                asChild
+                                                variant="outline"
+                                                className="w-full lg:w-auto"
+                                            >
+                                                <Link href={submissionsIndex()}>
+                                                    Reset
+                                                </Link>
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+                            </Form>
+
                             {submissions.length === 0 ? (
                                 <div className="rounded-2xl border border-dashed border-sidebar-border/70 bg-muted/30 p-8 text-sm text-muted-foreground">
-                                    No submissions yet. The first successful
-                                    upload will appear here with protected
+                                    No submissions match the current view. The
+                                    first successful upload or a broader filter
+                                    range will appear here with protected
                                     document access and a pending processing
                                     state.
                                 </div>
@@ -186,12 +292,12 @@ export default function SubmissionsIndex({
                     <Card className="border-sidebar-border/70">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                <Clock3 className="size-5" />
-                                Current behavior
+                                <CalendarRange className="size-5" />
+                                Workspace signals
                             </CardTitle>
                             <CardDescription>
-                                This PR establishes protected storage and
-                                history tracking.
+                                The submissions workspace now supports both
+                                upload actions and history filters.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3 text-sm text-muted-foreground">
@@ -210,7 +316,12 @@ export default function SubmissionsIndex({
                                 document stored on the private local disk.
                             </p>
                             <p>
-                                Download and detail access stay behind
+                                History can be narrowed by status and created-at
+                                date range without leaving the Inertia
+                                workspace.
+                            </p>
+                            <p>
+                                Download and detail access still stay behind
                                 authenticated controller routes.
                             </p>
                         </CardContent>
