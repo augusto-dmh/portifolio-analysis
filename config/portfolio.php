@@ -15,6 +15,7 @@ return [
         'accepted_extensions' => ['pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'xls'],
     ],
     'processing' => [
+        'auto_dispatch' => (bool) env('PORTFOLIO_AUTO_DISPATCH', false),
         'queues' => [
             'default' => 'default',
             'extraction' => 'extraction',

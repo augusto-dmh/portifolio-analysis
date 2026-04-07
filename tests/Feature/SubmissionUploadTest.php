@@ -2,10 +2,12 @@
 
 use App\Enums\DocumentStatus;
 use App\Enums\SubmissionStatus;
+use App\Jobs\ProcessSubmissionJob;
 use App\Models\Document;
 use App\Models\Submission;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 
 test('guests are redirected from submission creation routes', function () {
@@ -75,6 +77,25 @@ test('analyst can store a multi-file submission on the private local disk', func
 
         Storage::disk('local')->assertExists($document->storage_path);
     }
+});
+
+test('submission upload can auto dispatch background processing when enabled', function () {
+    Bus::fake();
+    Storage::fake('local');
+
+    config()->set('portfolio.processing.auto_dispatch', true);
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('portfolio.csv', 16, 'text/csv'),
+        ],
+    ])->assertRedirect();
+
+    $submission = Submission::query()->first();
+
+    Bus::assertDispatched(ProcessSubmissionJob::class, fn ($job) => $job->submissionId === $submission?->getKey());
 });
 
 test('submission validation rejects unsupported document types', function () {
