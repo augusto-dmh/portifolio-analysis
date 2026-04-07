@@ -3,7 +3,11 @@
 namespace App\Providers;
 
 use App\Enums\UserRole;
+use App\Models\Document;
+use App\Models\Submission;
 use App\Models\User;
+use App\Policies\DocumentPolicy;
+use App\Policies\SubmissionPolicy;
 use App\Policies\UserPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -34,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
     private function registerAuthorization(): void
     {
         Gate::policy(User::class, UserPolicy::class);
+        Gate::policy(Submission::class, SubmissionPolicy::class);
+        Gate::policy(Document::class, DocumentPolicy::class);
 
         Gate::define('admin', fn (User $user): bool => $user->role === UserRole::Admin);
 
