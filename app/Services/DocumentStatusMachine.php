@@ -44,6 +44,35 @@ class DocumentStatusMachine
         DocumentStatus::Approved,
     ];
 
+    public function markSubmissionProcessing(
+        Submission $submission,
+        string $triggeredBy = 'queue',
+        array $metadata = [],
+    ): Submission {
+        $originalStatus = $submission->status;
+
+        if ($originalStatus === SubmissionStatus::Processing) {
+            return $submission;
+        }
+
+        $submission->forceFill([
+            'status' => SubmissionStatus::Processing,
+            'completed_at' => null,
+        ])->save();
+
+        $this->recordEvent(
+            eventable: $submission,
+            traceId: $submission->trace_id,
+            statusFrom: $originalStatus->value,
+            statusTo: SubmissionStatus::Processing->value,
+            eventType: 'status_change',
+            triggeredBy: $triggeredBy,
+            metadata: $metadata,
+        );
+
+        return $submission->fresh();
+    }
+
     public function transitionDocument(
         Document $document,
         DocumentStatus $to,

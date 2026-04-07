@@ -6,6 +6,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\SubmissionStatus;
 use App\Http\Requests\FilterSubmissionsRequest;
 use App\Http\Requests\StoreSubmissionRequest;
+use App\Jobs\ProcessSubmissionJob;
 use App\Models\Document;
 use App\Models\Submission;
 use App\Services\DocumentStorageService;
@@ -97,6 +98,10 @@ class SubmissionController extends Controller
 
             return $submission;
         });
+
+        if (config('portfolio.processing.auto_dispatch', false)) {
+            ProcessSubmissionJob::dispatch($submission->getKey());
+        }
 
         return to_route('submissions.show', $submission)
             ->with('status', trans_choice(':count document uploaded successfully.|:count documents uploaded successfully.', $documentsCount, [
