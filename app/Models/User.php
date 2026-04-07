@@ -51,4 +51,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(Submission::class);
     }
+
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(AuditLog::class);
+    }
+
+    public function createdClassificationRules(): HasMany
+    {
+        return $this->hasMany(ClassificationRule::class, 'created_by');
+    }
+
+    public function reviewedAssets(): HasMany
+    {
+        return $this->hasMany(ExtractedAsset::class, 'reviewed_by');
+    }
 }

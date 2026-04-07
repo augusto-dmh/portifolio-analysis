@@ -23,5 +23,7 @@ class DatabaseSeeder extends Seeder
             'email' => 'admin@portfolio.test',
             'password' => Hash::make('password'),
         ]);
+
+        $this->call(ClassificationRuleSeeder::class);
     }
 }
