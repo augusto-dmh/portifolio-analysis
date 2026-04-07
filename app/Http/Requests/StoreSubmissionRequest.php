@@ -21,14 +21,25 @@ class StoreSubmissionRequest extends FormRequest
      */
     public function rules(): array
     {
+        $acceptedExtensions = config('portfolio.upload.accepted_extensions', [
+            'pdf',
+            'png',
+            'jpg',
+            'jpeg',
+            'csv',
+            'xlsx',
+            'xls',
+        ]);
+        $maxFilesPerSubmission = (int) config('portfolio.upload.max_files_per_submission', 20);
+        $maxFileSizeInKilobytes = (int) config('portfolio.upload.max_file_size_mb', 50) * 1024;
+
         return [
             'email_lead' => ['nullable', 'email', 'max:255'],
             'observation' => ['nullable', 'string', 'max:2000'],
-            'documents' => ['required', 'array', 'min:1', 'max:20'],
+            'documents' => ['required', 'array', 'min:1', 'max:'.$maxFilesPerSubmission],
             'documents.*' => [
                 'required',
-                File::types(['pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'xls'])
-                    ->max(50 * 1024),
+                File::types($acceptedExtensions)->max($maxFileSizeInKilobytes),
             ],
         ];
     }
