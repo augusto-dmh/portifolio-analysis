@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\DocumentStatus;
 use App\Enums\SubmissionStatus;
+use App\Http\Requests\FilterSubmissionsRequest;
 use App\Http\Requests\StoreSubmissionRequest;
 use App\Models\Document;
 use App\Models\Submission;
@@ -17,15 +18,27 @@ use Inertia\Response as InertiaResponse;
 
 class SubmissionController extends Controller
 {
-    public function index(Request $request): InertiaResponse
+    public function index(FilterSubmissionsRequest $request): InertiaResponse
     {
-        $this->authorize('viewAny', Submission::class);
+        $filters = $request->safe()->only(['status', 'date_from', 'date_to']);
 
         $submissions = Submission::query()
             ->with('user:id,name')
             ->when(
                 ! $request->user()->isAdmin(),
                 fn ($query) => $query->whereBelongsTo($request->user()),
+            )
+            ->when(
+                filled($filters['status'] ?? null),
+                fn ($query) => $query->where('status', $filters['status']),
+            )
+            ->when(
+                filled($filters['date_from'] ?? null),
+                fn ($query) => $query->whereDate('created_at', '>=', $filters['date_from']),
+            )
+            ->when(
+                filled($filters['date_to'] ?? null),
+                fn ($query) => $query->whereDate('created_at', '<=', $filters['date_to']),
             )
             ->latest()
             ->get()
@@ -35,6 +48,11 @@ class SubmissionController extends Controller
         return Inertia::render('submissions/index', [
             'submissions' => $submissions,
             'canCreate' => $request->user()->can('create', Submission::class),
+            'filters' => [
+                'status' => $filters['status'] ?? '',
+                'dateFrom' => $filters['date_from'] ?? '',
+                'dateTo' => $filters['date_to'] ?? '',
+            ],
             'status' => $request->session()->get('status'),
         ]);
     }

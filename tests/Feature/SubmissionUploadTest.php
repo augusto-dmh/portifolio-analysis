@@ -121,6 +121,46 @@ test('non-admin users only see their own submissions in history while admins see
         );
 });
 
+test('submission history can be filtered by status and date range', function () {
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $matchingSubmission = Submission::factory()
+        ->for($analyst)
+        ->create([
+            'status' => SubmissionStatus::Pending,
+            'created_at' => '2026-04-08 10:00:00',
+        ]);
+
+    Submission::factory()
+        ->for($analyst)
+        ->create([
+            'status' => SubmissionStatus::Failed,
+            'created_at' => '2026-04-08 10:30:00',
+        ]);
+
+    Submission::factory()
+        ->for($analyst)
+        ->create([
+            'status' => SubmissionStatus::Pending,
+            'created_at' => '2026-03-31 23:59:59',
+        ]);
+
+    $this->actingAs($analyst)
+        ->get(route('submissions.index', [
+            'status' => SubmissionStatus::Pending->value,
+            'date_from' => '2026-04-08',
+            'date_to' => '2026-04-08',
+        ]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('submissions', 1)
+            ->where('submissions.0.id', $matchingSubmission->getKey())
+            ->where('filters.status', SubmissionStatus::Pending->value)
+            ->where('filters.dateFrom', '2026-04-08')
+            ->where('filters.dateTo', '2026-04-08')
+        );
+});
+
 test('users can view their own submission detail while unrelated analysts are forbidden', function () {
     $owner = User::factory()->asViewer()->create();
     $otherAnalyst = User::factory()->asAnalyst()->create();

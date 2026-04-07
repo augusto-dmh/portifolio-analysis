@@ -1,5 +1,4 @@
-import { Form, Head, Link } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import SubmissionController from '@/actions/App/Http/Controllers/SubmissionController';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -13,6 +12,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
+import UploadDropzone from '@/components/upload-dropzone';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import {
@@ -20,10 +21,16 @@ import {
     index as submissionsIndex,
 } from '@/routes/submissions';
 
-const acceptedFileTypes = '.pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls';
-
 export default function CreateSubmission() {
-    const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+    const form = useForm<{
+        email_lead: string;
+        observation: string;
+        documents: File[];
+    }>({
+        email_lead: '',
+        observation: '',
+        documents: [],
+    });
 
     return (
         <>
@@ -55,120 +62,120 @@ export default function CreateSubmission() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Form
-                                {...SubmissionController.store.form()}
-                                encType="multipart/form-data"
+                            <form
                                 className="space-y-6"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+
+                                    form.post(
+                                        SubmissionController.store.url(),
+                                        {
+                                            forceFormData: true,
+                                            preserveScroll: true,
+                                        },
+                                    );
+                                }}
                             >
-                                {({ errors, processing }) => (
-                                    <>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="email_lead">
-                                                Lead email
-                                            </Label>
-                                            <Input
-                                                id="email_lead"
-                                                name="email_lead"
-                                                type="email"
-                                                placeholder="investor@example.com"
-                                            />
-                                            <InputError
-                                                message={errors.email_lead}
-                                            />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="email_lead">
+                                        Lead email
+                                    </Label>
+                                    <Input
+                                        id="email_lead"
+                                        name="email_lead"
+                                        type="email"
+                                        placeholder="investor@example.com"
+                                        value={form.data.email_lead}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'email_lead',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                    <InputError
+                                        message={form.errors.email_lead}
+                                    />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="observation">
-                                                Observation
-                                            </Label>
-                                            <textarea
-                                                id="observation"
-                                                name="observation"
-                                                rows={5}
-                                                className="min-h-32 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                                                placeholder="Optional context for this portfolio batch"
-                                            />
-                                            <InputError
-                                                message={errors.observation}
-                                            />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="observation">
+                                        Observation
+                                    </Label>
+                                    <textarea
+                                        id="observation"
+                                        name="observation"
+                                        rows={5}
+                                        className="min-h-32 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                                        placeholder="Optional context for this portfolio batch"
+                                        value={form.data.observation}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'observation',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                    <InputError
+                                        message={form.errors.observation}
+                                    />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="documents">
-                                                Documents
-                                            </Label>
-                                            <label
-                                                htmlFor="documents"
-                                                className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-sidebar-border/70 bg-muted/20 px-6 py-8 text-center transition-colors hover:bg-accent/30"
-                                            >
-                                                <span className="text-base font-medium">
-                                                    Choose files or drop them
-                                                    here
-                                                </span>
-                                                <span className="mt-2 max-w-md text-sm text-muted-foreground">
-                                                    Accepted formats: PDF, PNG,
-                                                    JPG, JPEG, CSV, XLSX, XLS.
-                                                    Maximum 20 files, 50 MB
-                                                    each.
-                                                </span>
-                                            </label>
-                                            <input
-                                                id="documents"
-                                                name="documents[]"
-                                                type="file"
-                                                multiple
-                                                required
-                                                accept={acceptedFileTypes}
-                                                className="sr-only"
-                                                onChange={(event) => {
-                                                    setSelectedFiles(
-                                                        Array.from(
-                                                            event.target
-                                                                .files ?? [],
-                                                        ).map(
-                                                            (file) => file.name,
-                                                        ),
-                                                    );
-                                                }}
-                                            />
-                                            <InputError
-                                                message={
-                                                    errors.documents ??
-                                                    errors['documents.0']
-                                                }
-                                            />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label>Documents</Label>
+                                    <UploadDropzone
+                                        files={form.data.documents}
+                                        disabled={form.processing}
+                                        error={
+                                            form.errors.documents ??
+                                            form.errors['documents.0']
+                                        }
+                                        progressPercentage={
+                                            form.progress?.percentage
+                                        }
+                                        onFilesChange={(files) => {
+                                            form.clearErrors(
+                                                'documents',
+                                                'documents.0',
+                                            );
+                                            form.setData('documents', files);
+                                        }}
+                                    />
+                                </div>
 
-                                        {selectedFiles.length > 0 && (
-                                            <div className="rounded-2xl border border-sidebar-border/70 bg-muted/30 p-4">
-                                                <p className="text-sm font-medium">
-                                                    Selected files
-                                                </p>
-                                                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                                                    {selectedFiles.map(
-                                                        (fileName) => (
-                                                            <p key={fileName}>
-                                                                {fileName}
-                                                            </p>
-                                                        ),
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            <Button disabled={processing}>
-                                                Upload documents
-                                            </Button>
-                                            <Button asChild variant="outline">
-                                                <Link href={submissionsIndex()}>
-                                                    Back to history
-                                                </Link>
-                                            </Button>
-                                        </div>
-                                    </>
+                                {form.progress && (
+                                    <Alert>
+                                        <AlertTitle>
+                                            Upload in progress
+                                        </AlertTitle>
+                                        <AlertDescription>
+                                            {Math.round(
+                                                form.progress.percentage ?? 0,
+                                            )}
+                                            % of the request has been uploaded.
+                                        </AlertDescription>
+                                    </Alert>
                                 )}
-                            </Form>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <Button
+                                        disabled={
+                                            form.processing ||
+                                            form.data.documents.length === 0
+                                        }
+                                    >
+                                        {form.processing && (
+                                            <Spinner className="size-4" />
+                                        )}
+                                        Upload documents
+                                    </Button>
+                                    <Button asChild variant="outline">
+                                        <Link href={submissionsIndex()}>
+                                            Back to history
+                                        </Link>
+                                    </Button>
+                                </div>
+                            </form>
                         </CardContent>
                     </Card>
 
@@ -176,7 +183,8 @@ export default function CreateSubmission() {
                         <CardHeader>
                             <CardTitle>Guardrails</CardTitle>
                             <CardDescription>
-                                This phase ships the secure backend path first.
+                                This phase extends the secure backend path with
+                                a better operator workflow.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4 text-sm text-muted-foreground">
@@ -187,14 +195,22 @@ export default function CreateSubmission() {
                                     web root.
                                 </AlertDescription>
                             </Alert>
+                            <Alert>
+                                <AlertTitle>Progress feedback</AlertTitle>
+                                <AlertDescription>
+                                    Upload progress now streams back into the
+                                    form while the multipart request is in
+                                    flight.
+                                </AlertDescription>
+                            </Alert>
                             <p>
                                 Each batch creates a submission record and a
                                 document record per file.
                             </p>
                             <p>
-                                Processing, drag-and-drop affordances, and live
-                                upload progress land in later PRs on top of this
-                                persistence layer.
+                                The current dropzone supports drag-and-drop,
+                                file list management, and estimated per-file
+                                progress within the batch upload.
                             </p>
                         </CardContent>
                     </Card>
