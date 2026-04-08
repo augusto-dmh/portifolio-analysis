@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ClassificationRuleController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\ExtractedAssetController;
 use App\Http\Controllers\SubmissionController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -17,11 +18,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('submissions/create', [SubmissionController::class, 'create'])->name('submissions.create');
     Route::post('submissions', [SubmissionController::class, 'store'])->name('submissions.store');
     Route::get('submissions/{submission}', [SubmissionController::class, 'show'])->name('submissions.show');
+    Route::post('submissions/{submission}/approve', [SubmissionController::class, 'approve'])->name('submissions.approve');
     Route::get('documents/{document}', [DocumentController::class, 'show'])->name('documents.show');
     Route::get('documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+    Route::put('extracted-assets/{asset}', [ExtractedAssetController::class, 'update'])->name('extracted-assets.update');
 
     Route::middleware('can:admin')->group(function () {
         Route::get('classification-rules', [ClassificationRuleController::class, 'index'])->name('classification-rules.index');
+        Route::post('classification-rules', [ClassificationRuleController::class, 'store'])->name('classification-rules.store');
+        Route::put('classification-rules/{classificationRule}', [ClassificationRuleController::class, 'update'])->name('classification-rules.update');
+        Route::delete('classification-rules/{classificationRule}', [ClassificationRuleController::class, 'destroy'])->name('classification-rules.destroy');
         Route::get('users', [UserController::class, 'index'])->name('users.index');
     });
 });

@@ -109,7 +109,8 @@ export default function SubmissionsIndex({
                         </CardHeader>
                         <CardContent>
                             <Form
-                                {...submissionsIndex.form()}
+                                action={submissionsIndex.url()}
+                                method={submissionsIndex().method}
                                 className="mb-6 grid gap-4 rounded-2xl border border-sidebar-border/70 bg-muted/20 p-4 lg:grid-cols-[1fr_1fr_1fr_auto_auto]"
                                 options={{
                                     preserveScroll: true,
