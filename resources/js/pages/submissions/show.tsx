@@ -1,5 +1,7 @@
-import { Head, Link } from '@inertiajs/react';
-import { FileStack, FolderOpen, ShieldCheck } from 'lucide-react';
+import { Form, Head, Link, useForm } from '@inertiajs/react';
+import ExtractedAssetController from '@/actions/App/Http/Controllers/ExtractedAssetController';
+import SubmissionController from '@/actions/App/Http/Controllers/SubmissionController';
+import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,21 @@ import {
     show as submissionsShow,
 } from '@/routes/submissions';
 
+type SubmissionAsset = {
+    id: number;
+    ativo: string;
+    ticker: string | null;
+    posicao: string;
+    posicaoNumeric: number | null;
+    classe: string | null;
+    estrategia: string | null;
+    classificationSource: string | null;
+    confidence: number | null;
+    isReviewed: boolean;
+    reviewedAt: string | null;
+    reviewedByName: string | null;
+};
+
 type SubmissionDocument = {
     id: string;
     originalFilename: string;
@@ -27,6 +44,9 @@ type SubmissionDocument = {
     status: string;
     isProcessable: boolean;
     createdAt: string | null;
+    extractedAssetsCount: number;
+    reviewedAssetsCount: number;
+    assets: SubmissionAsset[];
 };
 
 type SubmissionDetail = {
@@ -48,13 +68,45 @@ type SubmissionDetail = {
     documents: SubmissionDocument[];
 };
 
+type SummaryRow = {
+    label: string;
+    count: number;
+    totalValue: number;
+};
+
+type ClassificationOptions = {
+    classes: string[];
+    strategies: string[];
+};
+
 export default function SubmissionShow({
     submission,
     status,
+    canReview,
+    canApprove,
+    classificationOptions,
+    portfolioSummary,
 }: {
     submission: SubmissionDetail;
     status?: string;
+    canReview: boolean;
+    canApprove: boolean;
+    classificationOptions: ClassificationOptions;
+    portfolioSummary: {
+        totalValue: number;
+        byClass: SummaryRow[];
+        byStrategy: SummaryRow[];
+    };
 }) {
+    const totalAssets = submission.documents.reduce(
+        (sum, document) => sum + document.extractedAssetsCount,
+        0,
+    );
+    const reviewedAssets = submission.documents.reduce(
+        (sum, document) => sum + document.reviewedAssetsCount,
+        0,
+    );
+
     return (
         <>
             <Head title={`Submission ${shortId(submission.id)}`} />
@@ -62,7 +114,7 @@ export default function SubmissionShow({
                 <section className="flex flex-col gap-4 rounded-3xl border border-sidebar-border/70 bg-gradient-to-br from-background via-background to-muted/30 p-6 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-2">
                         <p className="text-sm font-medium tracking-[0.2em] text-muted-foreground uppercase">
-                            Submission Detail
+                            Submission Review
                         </p>
                         <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-3">
@@ -76,31 +128,82 @@ export default function SubmissionShow({
                                 </Badge>
                             </div>
                             <p className="max-w-2xl text-sm text-muted-foreground">
-                                Protected document records, owner metadata, and
-                                processing counters now live on this page.
+                                Analysts can now review extracted assets, adjust
+                                classifications, and approve the batch when the
+                                document set is ready.
                             </p>
                         </div>
                     </div>
 
-                    <Button asChild variant="outline">
-                        <Link href={submissionsIndex()}>Back to history</Link>
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3">
+                        {canReview && (
+                            <Form
+                                action={SubmissionController.approve.url({
+                                    submission: submission.id,
+                                })}
+                                method={
+                                    SubmissionController.approve({
+                                        submission: submission.id,
+                                    }).method
+                                }
+                                options={{
+                                    preserveScroll: true,
+                                }}
+                            >
+                                {({ processing }) => (
+                                    <Button
+                                        disabled={!canApprove || processing}
+                                    >
+                                        Approve submission
+                                    </Button>
+                                )}
+                            </Form>
+                        )}
+                        <Button asChild variant="outline">
+                            <Link href={submissionsIndex()}>
+                                Back to history
+                            </Link>
+                        </Button>
+                    </div>
                 </section>
 
                 {status && (
                     <Alert>
-                        <ShieldCheck className="size-4" />
-                        <AlertTitle>Submission created</AlertTitle>
+                        <AlertTitle>Workspace updated</AlertTitle>
                         <AlertDescription>{status}</AlertDescription>
                     </Alert>
                 )}
 
-                <div className="grid gap-4 xl:grid-cols-[1.1fr_1.3fr]">
+                <div className="grid gap-4 xl:grid-cols-4">
+                    <MetricCard
+                        title="Total extracted assets"
+                        value={`${totalAssets}`}
+                        description="Rows currently available in the analyst workspace."
+                    />
+                    <MetricCard
+                        title="Reviewed assets"
+                        value={`${reviewedAssets}`}
+                        description="Rows already confirmed or manually corrected."
+                    />
+                    <MetricCard
+                        title="Portfolio total"
+                        value={formatCurrency(portfolioSummary.totalValue)}
+                        description="Sum of normalized position values."
+                    />
+                    <MetricCard
+                        title="Documents"
+                        value={`${submission.documentsCount}`}
+                        description="Private source files linked to this batch."
+                    />
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
                     <Card className="border-sidebar-border/70">
                         <CardHeader>
                             <CardTitle>Batch metadata</CardTitle>
                             <CardDescription>
-                                Summary for the persisted upload request.
+                                Summary for the persisted submission and audit
+                                trace.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4 text-sm">
@@ -119,10 +222,6 @@ export default function SubmissionShow({
                             <MetadataRow
                                 label="Created"
                                 value={formatDate(submission.createdAt)}
-                            />
-                            <MetadataRow
-                                label="Documents"
-                                value={`${submission.documentsCount}`}
                             />
                             <MetadataRow
                                 label="Processed"
@@ -151,71 +250,139 @@ export default function SubmissionShow({
 
                     <Card className="border-sidebar-border/70">
                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <FolderOpen className="size-5" />
-                                Documents
-                            </CardTitle>
+                            <CardTitle>Portfolio summary</CardTitle>
                             <CardDescription>
-                                Each uploaded file is stored privately and gets
-                                its own record.
+                                Aggregated exposure by class and strategy after
+                                the current review state.
                             </CardDescription>
                         </CardHeader>
-                        <CardContent>
-                            <div className="space-y-3">
-                                {submission.documents.map((document) => (
-                                    <Link
-                                        key={document.id}
-                                        href={documentsShow({
-                                            document: document.id,
-                                        })}
-                                        className="block rounded-2xl border border-sidebar-border/70 bg-card p-4 transition-colors hover:bg-accent/40"
-                                    >
-                                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                            <div className="space-y-2">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <p className="font-semibold">
-                                                        {
-                                                            document.originalFilename
-                                                        }
-                                                    </p>
-                                                    <Badge
-                                                        variant={badgeVariant(
-                                                            document.status,
-                                                        )}
-                                                    >
-                                                        {formatStatus(
-                                                            document.status,
-                                                        )}
-                                                    </Badge>
-                                                </div>
-                                                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                                                    <span>
-                                                        {document.mimeType}
-                                                    </span>
-                                                    <span>
-                                                        {formatFileSize(
-                                                            document.fileSizeBytes,
-                                                        )}
-                                                    </span>
-                                                    <span>
-                                                        Added{' '}
-                                                        {formatDate(
-                                                            document.createdAt,
-                                                        )}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                <FileStack className="size-4" />
-                                                View document
-                                            </div>
-                                        </div>
-                                    </Link>
-                                ))}
-                            </div>
+                        <CardContent className="grid gap-4 lg:grid-cols-2">
+                            <SummaryList
+                                title="By class"
+                                rows={portfolioSummary.byClass}
+                            />
+                            <SummaryList
+                                title="By strategy"
+                                rows={portfolioSummary.byStrategy}
+                            />
                         </CardContent>
                     </Card>
+                </div>
+
+                <Card className="border-sidebar-border/70">
+                    <CardHeader>
+                        <CardTitle>Documents</CardTitle>
+                        <CardDescription>
+                            Each document links back to its protected record and
+                            shows review progress at a glance.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {submission.documents.map((document) => (
+                            <Link
+                                key={document.id}
+                                href={documentsShow({ document: document.id })}
+                                className="block rounded-2xl border border-sidebar-border/70 bg-card p-4 transition-colors hover:bg-accent/40"
+                            >
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                    <div className="space-y-2">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-semibold">
+                                                {document.originalFilename}
+                                            </p>
+                                            <Badge
+                                                variant={badgeVariant(
+                                                    document.status,
+                                                )}
+                                            >
+                                                {formatStatus(document.status)}
+                                            </Badge>
+                                        </div>
+                                        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                                            <span>{document.mimeType}</span>
+                                            <span>
+                                                {formatFileSize(
+                                                    document.fileSizeBytes,
+                                                )}
+                                            </span>
+                                            <span>
+                                                {document.reviewedAssetsCount}/
+                                                {document.extractedAssetsCount}{' '}
+                                                assets reviewed
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span className="text-sm text-muted-foreground">
+                                        View document
+                                    </span>
+                                </div>
+                            </Link>
+                        ))}
+                    </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                    {submission.documents.map((document) => (
+                        <Card
+                            key={document.id}
+                            className="border-sidebar-border/70"
+                        >
+                            <CardHeader>
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                    <div>
+                                        <CardTitle>
+                                            {document.originalFilename}
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {document.extractedAssetsCount === 0
+                                                ? 'No extracted assets are available yet for this document.'
+                                                : 'Review each extracted asset and save the final classification.'}
+                                        </CardDescription>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge
+                                            variant={badgeVariant(
+                                                document.status,
+                                            )}
+                                        >
+                                            {formatStatus(document.status)}
+                                        </Badge>
+                                        <Badge variant="outline">
+                                            {document.reviewedAssetsCount}/
+                                            {document.extractedAssetsCount}{' '}
+                                            reviewed
+                                        </Badge>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                {document.assets.length === 0 ? (
+                                    <div className="rounded-2xl border border-dashed border-sidebar-border/70 bg-muted/30 p-6 text-sm text-muted-foreground">
+                                        Extracted assets will appear here after
+                                        the processing pipeline finishes for
+                                        this document.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {document.assets.map((asset) => (
+                                            <AssetReviewRow
+                                                key={asset.id}
+                                                asset={asset}
+                                                canReview={
+                                                    canReview &&
+                                                    document.status !==
+                                                        'approved'
+                                                }
+                                                classificationOptions={
+                                                    classificationOptions
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    ))}
                 </div>
             </div>
         </>
@@ -246,6 +413,235 @@ SubmissionShow.layout = (
         {page}
     </AppLayout>
 );
+
+function AssetReviewRow({
+    asset,
+    canReview,
+    classificationOptions,
+}: {
+    asset: SubmissionAsset;
+    canReview: boolean;
+    classificationOptions: ClassificationOptions;
+}) {
+    const form = useForm({
+        classe: asset.classe ?? '',
+        estrategia: asset.estrategia ?? '',
+    });
+
+    return (
+        <div className="rounded-2xl border border-sidebar-border/70 bg-muted/10 p-4">
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_1.5fr]">
+                <div className="space-y-3">
+                    <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold">{asset.ativo}</p>
+                            <SourceBadge source={asset.classificationSource} />
+                            {asset.isReviewed && (
+                                <Badge variant="outline">Reviewed</Badge>
+                            )}
+                        </div>
+                        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                            {asset.ticker && (
+                                <span>Ticker: {asset.ticker}</span>
+                            )}
+                            <span>Position: {asset.posicao}</span>
+                            {asset.posicaoNumeric !== null && (
+                                <span>
+                                    Normalized:{' '}
+                                    {formatCurrency(asset.posicaoNumeric)}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="grid gap-2 text-sm text-muted-foreground">
+                        <p>
+                            Current class:{' '}
+                            <span className="font-medium text-foreground">
+                                {asset.classe ?? 'Unclassified'}
+                            </span>
+                        </p>
+                        <p>
+                            Current strategy:{' '}
+                            <span className="font-medium text-foreground">
+                                {asset.estrategia ?? 'Unclassified'}
+                            </span>
+                        </p>
+                        {asset.reviewedByName && (
+                            <p>
+                                Last review: {asset.reviewedByName}
+                                {asset.reviewedAt
+                                    ? ` on ${formatDate(asset.reviewedAt)}`
+                                    : ''}
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                <form
+                    className="grid gap-3 rounded-2xl border border-sidebar-border/70 bg-background/80 p-4"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        form.put(
+                            ExtractedAssetController.update.url({
+                                asset: asset.id,
+                            }),
+                            {
+                                preserveScroll: true,
+                            },
+                        );
+                    }}
+                >
+                    <div className="grid gap-3 lg:grid-cols-2">
+                        <div className="grid gap-2">
+                            <label
+                                className="text-sm font-medium"
+                                htmlFor={`classe-${asset.id}`}
+                            >
+                                Classe
+                            </label>
+                            <select
+                                id={`classe-${asset.id}`}
+                                value={form.data.classe}
+                                onChange={(event) =>
+                                    form.setData('classe', event.target.value)
+                                }
+                                disabled={!canReview || form.processing}
+                                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                            >
+                                <option value="">Select class</option>
+                                {classificationOptions.classes.map((option) => (
+                                    <option key={option} value={option}>
+                                        {option}
+                                    </option>
+                                ))}
+                            </select>
+                            <InputError message={form.errors.classe} />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <label
+                                className="text-sm font-medium"
+                                htmlFor={`estrategia-${asset.id}`}
+                            >
+                                Estratégia
+                            </label>
+                            <select
+                                id={`estrategia-${asset.id}`}
+                                value={form.data.estrategia}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'estrategia',
+                                        event.target.value,
+                                    )
+                                }
+                                disabled={!canReview || form.processing}
+                                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                            >
+                                <option value="">Select strategy</option>
+                                {classificationOptions.strategies.map(
+                                    (option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ),
+                                )}
+                            </select>
+                            <InputError message={form.errors.estrategia} />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-muted-foreground">
+                            Saving marks this asset as reviewed and records the
+                            manual override source.
+                        </p>
+                        {canReview && (
+                            <Button disabled={form.processing}>
+                                Save review
+                            </Button>
+                        )}
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+function MetricCard({
+    title,
+    value,
+    description,
+}: {
+    title: string;
+    value: string;
+    description: string;
+}) {
+    return (
+        <Card className="border-sidebar-border/70">
+            <CardHeader className="pb-3">
+                <CardDescription>{title}</CardDescription>
+                <CardTitle className="text-2xl">{value}</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+                {description}
+            </CardContent>
+        </Card>
+    );
+}
+
+function SummaryList({ title, rows }: { title: string; rows: SummaryRow[] }) {
+    return (
+        <div className="space-y-3 rounded-2xl border border-sidebar-border/70 bg-muted/10 p-4">
+            <h3 className="text-sm font-medium tracking-[0.18em] text-muted-foreground uppercase">
+                {title}
+            </h3>
+            {rows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                    No classified assets yet.
+                </p>
+            ) : (
+                <div className="space-y-3">
+                    {rows.map((row) => (
+                        <div
+                            key={row.label}
+                            className="flex items-center justify-between gap-3 border-b border-sidebar-border/70 pb-3 last:border-b-0 last:pb-0"
+                        >
+                            <div>
+                                <p className="font-medium">{row.label}</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {row.count} asset
+                                    {row.count === 1 ? '' : 's'}
+                                </p>
+                            </div>
+                            <p className="text-sm font-medium">
+                                {formatCurrency(row.totalValue)}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SourceBadge({ source }: { source: string | null }) {
+    const styles: Record<string, string> = {
+        base1: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        deterministic: 'border-sky-200 bg-sky-50 text-sky-700',
+        ai: 'border-amber-200 bg-amber-50 text-amber-700',
+        manual: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700',
+    };
+
+    return (
+        <Badge
+            variant="outline"
+            className={source ? styles[source] : 'border-muted-foreground/20'}
+        >
+            {source ? formatStatus(source) : 'Unknown source'}
+        </Badge>
+    );
+}
 
 function MetadataRow({
     label,
@@ -281,6 +677,14 @@ function formatDate(value: string | null): string {
     }).format(new Date(value));
 }
 
+function formatCurrency(value: number): string {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
 function formatFileSize(bytes: number): string {
     if (bytes >= 1024 * 1024) {
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -303,11 +707,11 @@ function badgeVariant(
         return 'destructive';
     }
 
-    if (status === 'completed') {
+    if (status === 'completed' || status === 'approved') {
         return 'default';
     }
 
-    if (status === 'processing') {
+    if (status === 'processing' || status === 'reviewed') {
         return 'outline';
     }
 
