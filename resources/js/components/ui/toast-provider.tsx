@@ -9,28 +9,17 @@ import {
     createContext,
     useContext,
     useEffect,
-    useEffectEvent,
     useRef,
     useState,
     type PropsWithChildren,
 } from 'react';
 import { cn } from '@/lib/utils';
-
-type ToastVariant = 'info' | 'success' | 'warning' | 'destructive';
-
-type ToastInput = {
-    title: string;
-    description?: string;
-    variant?: ToastVariant;
-    duration?: number;
-    key?: string;
-};
-
-type ToastRecord = ToastInput & {
-    id: number;
-    variant: ToastVariant;
-    duration: number;
-};
+import {
+    upsertToastRecord,
+    type ToastInput,
+    type ToastRecord,
+    type ToastVariant,
+} from '@/components/ui/toast-provider-state';
 
 type ToastContextValue = {
     toast: (input: ToastInput) => void;
@@ -40,10 +29,11 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: PropsWithChildren) {
     const [toasts, setToasts] = useState<ToastRecord[]>([]);
+    const toastsRef = useRef<ToastRecord[]>([]);
     const nextToastId = useRef(0);
     const timeouts = useRef(new Map<number, number>());
 
-    const dismiss = useEffectEvent((id: number) => {
+    const dismiss = (id: number) => {
         const timeout = timeouts.current.get(id);
 
         if (timeout !== undefined) {
@@ -51,47 +41,40 @@ export function ToastProvider({ children }: PropsWithChildren) {
             timeouts.current.delete(id);
         }
 
-        setToasts((currentToasts) =>
-            currentToasts.filter((toast) => toast.id !== id),
-        );
-    });
+        const nextToasts = toastsRef.current.filter((toast) => toast.id !== id);
 
-    const toast = useEffectEvent((input: ToastInput) => {
-        const existingToastId =
-            input.key === undefined
-                ? undefined
-                : toasts.find((toastRecord) => toastRecord.key === input.key)
-                      ?.id;
-        const id = existingToastId ?? ++nextToastId.current;
-        const nextToast: ToastRecord = {
-            id,
-            title: input.title,
-            description: input.description,
-            variant: input.variant ?? 'info',
-            duration: input.duration ?? 4500,
-            key: input.key,
-        };
+        toastsRef.current = nextToasts;
+        setToasts(nextToasts);
+    };
 
-        setToasts((currentToasts) =>
-            existingToastId === undefined
-                ? [...currentToasts, nextToast]
-                : currentToasts.map((toastRecord) =>
-                      toastRecord.id === existingToastId
-                          ? nextToast
-                          : toastRecord,
-                  ),
+    const toast = (input: ToastInput) => {
+        const nextToastState = upsertToastRecord(
+            toastsRef.current,
+            input,
+            nextToastId.current,
         );
 
-        if (existingToastId !== undefined) {
-            dismiss(existingToastId);
+        if (nextToastState.replacedToastId !== undefined) {
+            const timeout = timeouts.current.get(
+                nextToastState.replacedToastId,
+            );
+
+            if (timeout !== undefined) {
+                window.clearTimeout(timeout);
+                timeouts.current.delete(nextToastState.replacedToastId);
+            }
         }
 
-        const timeout = window.setTimeout(() => {
-            dismiss(id);
-        }, nextToast.duration);
+        nextToastId.current = nextToastState.nextToastId;
 
-        timeouts.current.set(id, timeout);
-    });
+        const timeout = window.setTimeout(() => {
+            dismiss(nextToastState.nextToast.id);
+        }, nextToastState.nextToast.duration);
+
+        timeouts.current.set(nextToastState.nextToast.id, timeout);
+        toastsRef.current = nextToastState.nextToasts;
+        setToasts(nextToastState.nextToasts);
+    };
 
     useEffect(() => {
         return () => {
