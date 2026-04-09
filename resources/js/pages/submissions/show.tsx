@@ -1,5 +1,5 @@
 import { Form, Head, Link, router, useForm } from '@inertiajs/react';
-import { startTransition, useRef } from 'react';
+import { startTransition, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import ExtractedAssetController from '@/actions/App/Http/Controllers/ExtractedAssetController';
 import SubmissionController from '@/actions/App/Http/Controllers/SubmissionController';
@@ -14,7 +14,12 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { useToast } from '@/components/ui/toast-provider';
 import { useSubmissionChannel } from '@/hooks/use-submission-channel';
+import type {
+    DocumentStatusChangedEvent,
+    SubmissionStatusChangedEvent,
+} from '@/hooks/use-submission-channel';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { show as documentsShow } from '@/routes/documents';
@@ -82,6 +87,8 @@ type ClassificationOptions = {
     strategies: string[];
 };
 
+const LIVE_STATUS_HIGHLIGHT_DURATION = 1800;
+
 export default function SubmissionShow({
     submission,
     status,
@@ -101,14 +108,109 @@ export default function SubmissionShow({
         byStrategy: SummaryRow[];
     };
 }) {
+    const { toast } = useToast();
     const isRefreshing = useRef(false);
+    const hasPendingRefresh = useRef(false);
+    const submissionHighlightTimeout = useRef<number | null>(null);
+    const documentHighlightTimeouts = useRef(new Map<string, number>());
+    const [isSubmissionStatusHighlighted, setIsSubmissionStatusHighlighted] =
+        useState(false);
+    const [highlightedDocumentIds, setHighlightedDocumentIds] = useState<
+        string[]
+    >([]);
+
+    const highlightSubmissionStatus = () => {
+        if (submissionHighlightTimeout.current !== null) {
+            window.clearTimeout(submissionHighlightTimeout.current);
+        }
+
+        setIsSubmissionStatusHighlighted(true);
+        submissionHighlightTimeout.current = window.setTimeout(() => {
+            setIsSubmissionStatusHighlighted(false);
+            submissionHighlightTimeout.current = null;
+        }, LIVE_STATUS_HIGHLIGHT_DURATION);
+    };
+
+    const highlightDocumentStatus = (documentId: string) => {
+        const existingTimeout =
+            documentHighlightTimeouts.current.get(documentId);
+
+        if (existingTimeout !== undefined) {
+            window.clearTimeout(existingTimeout);
+        }
+
+        setHighlightedDocumentIds((currentIds) =>
+            currentIds.includes(documentId)
+                ? currentIds
+                : [...currentIds, documentId],
+        );
+
+        const timeout = window.setTimeout(() => {
+            setHighlightedDocumentIds((currentIds) =>
+                currentIds.filter((id) => id !== documentId),
+            );
+            documentHighlightTimeouts.current.delete(documentId);
+        }, LIVE_STATUS_HIGHLIGHT_DURATION);
+
+        documentHighlightTimeouts.current.set(documentId, timeout);
+    };
+
+    const notifyForDocumentStatus = (event: DocumentStatusChangedEvent) => {
+        if (
+            event.statusTo !== 'extraction_failed' &&
+            event.statusTo !== 'classification_failed'
+        ) {
+            return;
+        }
+
+        const document = submission.documents.find(
+            (item) => item.id === event.documentId,
+        );
+
+        toast({
+            title: 'Document processing failed',
+            description: document
+                ? `${document.originalFilename} needs attention before this submission can finish cleanly.`
+                : 'A document in this submission needs attention before processing can finish cleanly.',
+            variant: 'destructive',
+            key: `document-failure:${event.documentId}`,
+        });
+    };
+
+    const notifyForSubmissionStatus = (event: SubmissionStatusChangedEvent) => {
+        const nextToast = submissionStatusToast(event);
+
+        if (nextToast !== null) {
+            toast(nextToast);
+        }
+    };
+
+    useEffect(() => {
+        const documentHighlightTimeoutMap = documentHighlightTimeouts.current;
+
+        return () => {
+            if (submissionHighlightTimeout.current !== null) {
+                window.clearTimeout(submissionHighlightTimeout.current);
+            }
+
+            for (const timeout of documentHighlightTimeoutMap.values()) {
+                window.clearTimeout(timeout);
+            }
+
+            documentHighlightTimeoutMap.clear();
+        };
+    }, []);
 
     useSubmissionChannel(submission.id, {
-        onDocumentStatusChanged: () => {
-            reloadSubmissionDetails(isRefreshing);
+        onDocumentStatusChanged: (event) => {
+            highlightDocumentStatus(event.documentId);
+            notifyForDocumentStatus(event);
+            queueSubmissionDetailsReload(isRefreshing, hasPendingRefresh);
         },
-        onSubmissionStatusChanged: () => {
-            reloadSubmissionDetails(isRefreshing);
+        onSubmissionStatusChanged: (event) => {
+            highlightSubmissionStatus();
+            notifyForSubmissionStatus(event);
+            queueSubmissionDetailsReload(isRefreshing, hasPendingRefresh);
         },
     });
 
@@ -120,6 +222,8 @@ export default function SubmissionShow({
         (sum, document) => sum + document.reviewedAssetsCount,
         0,
     );
+    const isDocumentStatusHighlighted = (documentId: string) =>
+        highlightedDocumentIds.includes(documentId);
 
     return (
         <>
@@ -137,6 +241,9 @@ export default function SubmissionShow({
                                 </h1>
                                 <Badge
                                     variant={badgeVariant(submission.status)}
+                                    className={liveBadgeClass(
+                                        isSubmissionStatusHighlighted,
+                                    )}
                                 >
                                     {formatStatus(submission.status)}
                                 </Badge>
@@ -311,6 +418,11 @@ export default function SubmissionShow({
                                                 variant={badgeVariant(
                                                     document.status,
                                                 )}
+                                                className={liveBadgeClass(
+                                                    isDocumentStatusHighlighted(
+                                                        document.id,
+                                                    ),
+                                                )}
                                             >
                                                 {formatStatus(document.status)}
                                             </Badge>
@@ -360,6 +472,11 @@ export default function SubmissionShow({
                                         <Badge
                                             variant={badgeVariant(
                                                 document.status,
+                                            )}
+                                            className={liveBadgeClass(
+                                                isDocumentStatusHighlighted(
+                                                    document.id,
+                                                ),
                                             )}
                                         >
                                             {formatStatus(document.status)}
@@ -702,10 +819,13 @@ function formatCurrency(value: number): string {
     }).format(value);
 }
 
-function reloadSubmissionDetails(
+function queueSubmissionDetailsReload(
     isRefreshing: MutableRefObject<boolean>,
+    hasPendingRefresh: MutableRefObject<boolean>,
 ): void {
     if (isRefreshing.current) {
+        hasPendingRefresh.current = true;
+
         return;
     }
 
@@ -721,6 +841,17 @@ function reloadSubmissionDetails(
                 'portfolioSummary',
             ],
             onFinish: () => {
+                if (hasPendingRefresh.current) {
+                    hasPendingRefresh.current = false;
+                    isRefreshing.current = false;
+                    queueSubmissionDetailsReload(
+                        isRefreshing,
+                        hasPendingRefresh,
+                    );
+
+                    return;
+                }
+
                 isRefreshing.current = false;
             },
         });
@@ -758,4 +889,50 @@ function badgeVariant(
     }
 
     return 'secondary';
+}
+
+function liveBadgeClass(isHighlighted: boolean): string | undefined {
+    if (!isHighlighted) {
+        return undefined;
+    }
+
+    return 'ring-2 ring-amber-300 shadow-[0_0_0_0.35rem_rgba(252,211,77,0.22)] transition-all duration-700 animate-pulse';
+}
+
+function submissionStatusToast(event: SubmissionStatusChangedEvent): {
+    title: string;
+    description: string;
+    variant: 'success' | 'warning' | 'destructive';
+    key: string;
+} | null {
+    if (event.statusTo === 'completed') {
+        return {
+            title: 'Submission completed',
+            description:
+                'All documents finished processing and the review workspace is ready.',
+            variant: 'success',
+            key: `submission-status:${event.submissionId}:completed`,
+        };
+    }
+
+    if (event.statusTo === 'partially_complete') {
+        return {
+            title: 'Submission finished with failures',
+            description: `${event.failedDocumentsCount} of ${event.documentsCount} documents failed during processing.`,
+            variant: 'warning',
+            key: `submission-status:${event.submissionId}:partially-complete`,
+        };
+    }
+
+    if (event.statusTo === 'failed') {
+        return {
+            title: 'Submission failed',
+            description:
+                'Every document in this submission failed processing. Review the document details and retry the batch.',
+            variant: 'destructive',
+            key: `submission-status:${event.submissionId}:failed`,
+        };
+    }
+
+    return null;
 }

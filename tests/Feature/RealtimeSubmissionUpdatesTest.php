@@ -97,6 +97,77 @@ test('submission creation dispatches dashboard refresh events for the owner and 
     });
 });
 
+test('submission terminal states broadcast payloads needed for live completion feedback', function () {
+    Event::fake([
+        SubmissionStatusChanged::class,
+    ]);
+
+    $submission = Submission::factory()->processing()->create([
+        'completed_at' => null,
+    ]);
+
+    Document::factory()->count(2)->for($submission)->create([
+        'status' => DocumentStatus::Approved,
+    ]);
+
+    $syncedSubmission = app(DocumentStatusMachine::class)->syncSubmission($submission);
+
+    expect($syncedSubmission->status)->toBe(SubmissionStatus::Completed);
+
+    Event::assertDispatched(SubmissionStatusChanged::class, function (SubmissionStatusChanged $event) use ($submission): bool {
+        return $event->submissionId === $submission->getKey()
+            && $event->statusFrom === SubmissionStatus::Processing->value
+            && $event->statusTo === SubmissionStatus::Completed->value
+            && $event->documentsCount === 2
+            && $event->processedDocumentsCount === 2
+            && $event->failedDocumentsCount === 0
+            && $event->completedAt !== null;
+    });
+});
+
+test('document failures broadcast payloads needed for live failure feedback', function () {
+    Event::fake([
+        DocumentStatusChanged::class,
+        SubmissionStatusChanged::class,
+    ]);
+
+    $submission = Submission::factory()->processing()->create([
+        'documents_count' => 1,
+    ]);
+    $document = Document::factory()->for($submission)->create([
+        'status' => DocumentStatus::Extracting,
+    ]);
+
+    app(DocumentStatusMachine::class)->transitionDocument(
+        $document,
+        DocumentStatus::ExtractionFailed,
+        eventType: 'extraction_failed',
+        triggeredBy: 'queue',
+    );
+
+    Event::assertDispatched(DocumentStatusChanged::class, function (DocumentStatusChanged $event) use ($document, $submission): bool {
+        return $event->submissionId === $submission->getKey()
+            && $event->documentId === $document->getKey()
+            && $event->statusFrom === DocumentStatus::Extracting->value
+            && $event->statusTo === DocumentStatus::ExtractionFailed->value
+            && $event->eventType === 'extraction_failed'
+            && $event->submissionStatus === SubmissionStatus::Failed->value
+            && $event->documentsCount === 1
+            && $event->processedDocumentsCount === 0
+            && $event->failedDocumentsCount === 1;
+    });
+
+    Event::assertDispatched(SubmissionStatusChanged::class, function (SubmissionStatusChanged $event) use ($submission): bool {
+        return $event->submissionId === $submission->getKey()
+            && $event->statusFrom === SubmissionStatus::Processing->value
+            && $event->statusTo === SubmissionStatus::Failed->value
+            && $event->documentsCount === 1
+            && $event->processedDocumentsCount === 0
+            && $event->failedDocumentsCount === 1
+            && $event->completedAt === null;
+    });
+});
+
 test('submission channel access matches the submission view policy', function () {
     $owner = User::factory()->asAnalyst()->create();
     $admin = User::factory()->asAdmin()->create();

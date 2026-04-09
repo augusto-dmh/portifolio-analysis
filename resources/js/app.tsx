@@ -1,5 +1,6 @@
 import { createInertiaApp } from '@inertiajs/react';
 import '@/echo';
+import { ToastProvider } from '@/components/ui/toast-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
 import AppLayout from '@/layouts/app-layout';
@@ -24,7 +25,11 @@ createInertiaApp({
     },
     strictMode: true,
     withApp(app) {
-        return <TooltipProvider delayDuration={0}>{app}</TooltipProvider>;
+        return (
+            <TooltipProvider delayDuration={0}>
+                <ToastProvider>{app}</ToastProvider>
+            </TooltipProvider>
+        );
     },
     progress: {
         color: '#4B5563',
