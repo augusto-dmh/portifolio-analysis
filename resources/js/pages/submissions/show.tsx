@@ -27,6 +27,8 @@ import {
     queueRefreshOnFinish,
     shouldNotifyForDocumentFailure,
 } from '@/pages/submissions/live-submission-feedback';
+import { buildAllocationSegments } from '@/pages/submissions/portfolio-allocation';
+import type { AllocationRow } from '@/pages/submissions/portfolio-allocation';
 import { dashboard } from '@/routes';
 import { show as documentsShow } from '@/routes/documents';
 import {
@@ -82,12 +84,6 @@ type SubmissionDetail = {
     documents: SubmissionDocument[];
 };
 
-type SummaryRow = {
-    label: string;
-    count: number;
-    totalValue: number;
-};
-
 type ClassificationOptions = {
     classes: string[];
     strategies: string[];
@@ -110,8 +106,10 @@ export default function SubmissionShow({
     classificationOptions: ClassificationOptions;
     portfolioSummary: {
         totalValue: number;
-        byClass: SummaryRow[];
-        byStrategy: SummaryRow[];
+        strategyTotalValue: number;
+        unclassifiedValue: number;
+        byClass: AllocationRow[];
+        byStrategy: AllocationRow[];
     };
 }) {
     const { toast } = useToast();
@@ -374,22 +372,46 @@ export default function SubmissionShow({
                     </Card>
 
                     <Card className="border-sidebar-border/70">
-                        <CardHeader>
-                            <CardTitle>Portfolio summary</CardTitle>
-                            <CardDescription>
-                                Aggregated exposure by class and strategy after
-                                the current review state.
-                            </CardDescription>
+                        <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <CardTitle>Portfolio summary</CardTitle>
+                                <CardDescription>
+                                    Aggregated exposure by class and strategy
+                                    after the current review state.
+                                </CardDescription>
+                            </div>
+                            <Button asChild variant="outline">
+                                <a
+                                    href={SubmissionController.exportPortfolio.url(
+                                        {
+                                            submission: submission.id,
+                                        },
+                                    )}
+                                >
+                                    Export CSV
+                                </a>
+                            </Button>
                         </CardHeader>
-                        <CardContent className="grid gap-4 lg:grid-cols-2">
-                            <SummaryList
-                                title="By class"
-                                rows={portfolioSummary.byClass}
-                            />
-                            <SummaryList
-                                title="By strategy"
+                        <CardContent className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+                            <AllocationChart
                                 rows={portfolioSummary.byStrategy}
+                                classifiedTotalValue={
+                                    portfolioSummary.strategyTotalValue
+                                }
+                                unclassifiedValue={
+                                    portfolioSummary.unclassifiedValue
+                                }
                             />
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <SummaryList
+                                    title="By class"
+                                    rows={portfolioSummary.byClass}
+                                />
+                                <SummaryList
+                                    title="By strategy"
+                                    rows={portfolioSummary.byStrategy}
+                                />
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -725,7 +747,145 @@ function MetricCard({
     );
 }
 
-function SummaryList({ title, rows }: { title: string; rows: SummaryRow[] }) {
+function AllocationChart({
+    rows,
+    classifiedTotalValue,
+    unclassifiedValue,
+}: {
+    rows: AllocationRow[];
+    classifiedTotalValue: number;
+    unclassifiedValue: number;
+}) {
+    const segments = buildAllocationSegments(rows);
+    const radius = 62;
+    const circumference = 2 * Math.PI * radius;
+
+    return (
+        <div className="rounded-2xl border border-sidebar-border/70 bg-muted/10 p-4">
+            <div className="space-y-1">
+                <h3 className="text-sm font-medium tracking-[0.18em] text-muted-foreground uppercase">
+                    Allocation by strategy
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                    Classified exposure split across strategy buckets.
+                </p>
+            </div>
+
+            {segments.length === 0 ? (
+                <div className="flex min-h-56 items-center justify-center text-sm text-muted-foreground">
+                    No classified strategy totals available yet.
+                </div>
+            ) : (
+                <div className="grid gap-6 pt-4 lg:grid-cols-[220px_1fr] lg:items-center">
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="relative h-48 w-48">
+                            <svg
+                                viewBox="0 0 160 160"
+                                className="h-full w-full -rotate-90"
+                                aria-hidden="true"
+                            >
+                                <circle
+                                    cx="80"
+                                    cy="80"
+                                    r={radius}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="18"
+                                    className="text-muted/50"
+                                />
+                                {segments.map((segment) => {
+                                    const dashLength =
+                                        segment.percentage * circumference;
+
+                                    return (
+                                        <circle
+                                            key={segment.label}
+                                            cx="80"
+                                            cy="80"
+                                            r={radius}
+                                            fill="none"
+                                            stroke={segment.color}
+                                            strokeWidth="18"
+                                            strokeLinecap="butt"
+                                            strokeDasharray={`${dashLength} ${circumference}`}
+                                            strokeDashoffset={
+                                                -(
+                                                    segment.offset *
+                                                    circumference
+                                                )
+                                            }
+                                        />
+                                    );
+                                })}
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                                <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+                                    Classified
+                                </p>
+                                <p className="max-w-28 text-sm leading-tight font-semibold">
+                                    {formatCurrency(classifiedTotalValue)}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        {segments.map((segment) => (
+                            <div
+                                key={segment.label}
+                                className="flex items-center justify-between gap-3 border-b border-sidebar-border/70 pb-3 last:border-b-0 last:pb-0"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span
+                                        className="h-3 w-3 rounded-full"
+                                        style={{
+                                            backgroundColor: segment.color,
+                                        }}
+                                        aria-hidden="true"
+                                    />
+                                    <div>
+                                        <p className="font-medium">
+                                            {segment.label}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                            {segment.count} asset
+                                            {segment.count === 1
+                                                ? ''
+                                                : 's'} ·{' '}
+                                            {(segment.percentage * 100).toFixed(
+                                                1,
+                                            )}
+                                            %
+                                        </p>
+                                    </div>
+                                </div>
+                                <p className="text-sm font-medium">
+                                    {formatCurrency(segment.totalValue)}
+                                </p>
+                            </div>
+                        ))}
+
+                        {unclassifiedValue > 0 && (
+                            <div className="rounded-2xl border border-dashed border-sidebar-border/70 bg-background/70 p-3 text-sm text-muted-foreground">
+                                {formatCurrency(unclassifiedValue)} remains
+                                outside the chart because those assets do not
+                                have a strategy yet.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function SummaryList({
+    title,
+    rows,
+}: {
+    title: string;
+    rows: AllocationRow[];
+}) {
     return (
         <div className="space-y-3 rounded-2xl border border-sidebar-border/70 bg-muted/10 p-4">
             <h3 className="text-sm font-medium tracking-[0.18em] text-muted-foreground uppercase">

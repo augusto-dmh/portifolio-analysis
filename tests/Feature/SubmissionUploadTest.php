@@ -198,11 +198,23 @@ test('users can view their own submission detail while unrelated analysts are fo
             ->where('submission.documents.0.id', $document->getKey())
         );
 
+    $this->actingAs($owner)
+        ->get(route('submissions.export', $submission))
+        ->assertOk();
+
     $this->actingAs($otherAnalyst)
         ->get(route('submissions.show', $submission))
         ->assertForbidden();
 
+    $this->actingAs($otherAnalyst)
+        ->get(route('submissions.export', $submission))
+        ->assertForbidden();
+
     $this->actingAs($admin)
         ->get(route('submissions.show', $submission))
+        ->assertOk();
+
+    $this->actingAs($admin)
+        ->get(route('submissions.export', $submission))
         ->assertOk();
 });
