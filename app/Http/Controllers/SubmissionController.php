@@ -14,6 +14,7 @@ use App\Services\DashboardStatsService;
 use App\Services\DocumentStatusMachine;
 use App\Services\DocumentStorageService;
 use App\Support\ClassificationOptions;
+use App\Support\SubmissionPortfolioCsv;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -22,12 +23,14 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SubmissionController extends Controller
 {
     public function __construct(
         private readonly ClassificationOptions $classificationOptions,
         private readonly DashboardStatsService $dashboardStatsService,
+        private readonly SubmissionPortfolioCsv $submissionPortfolioCsv,
     ) {}
 
     public function index(FilterSubmissionsRequest $request): InertiaResponse
@@ -126,15 +129,13 @@ class SubmissionController extends Controller
     {
         $this->authorize('view', $submission);
 
-        $submission->load([
-            'user:id,name,email',
-            'documents' => fn ($query) => $query->latest(),
-            'documents.extractedAssets.reviewer:id,name',
-        ]);
-
-        $allAssets = $submission->documents
-            ->flatMap(fn (Document $document) => $document->extractedAssets)
-            ->values();
+        $submission = $this->loadSubmissionWorkspace($submission);
+        $allAssets = $this->submissionAssets($submission);
+        $strategySummary = $this->groupAssetsBy($allAssets, 'estrategia');
+        $portfolioTotalValue = (float) $allAssets->sum(
+            fn (ExtractedAsset $asset): float => (float) ($asset->posicao_numeric ?? 0),
+        );
+        $strategyTotalValue = (float) collect($strategySummary)->sum('totalValue');
         $documentsReadyForApproval = $submission->documents
             ->filter(fn (Document $document): bool => in_array($document->status, [
                 DocumentStatus::ReadyForReview,
@@ -175,13 +176,43 @@ class SubmissionController extends Controller
                 ),
             ],
             'portfolioSummary' => [
-                'totalValue' => (float) $allAssets->sum(
-                    fn (ExtractedAsset $asset): float => (float) ($asset->posicao_numeric ?? 0),
-                ),
+                'totalValue' => $portfolioTotalValue,
+                'strategyTotalValue' => $strategyTotalValue,
+                'unclassifiedValue' => max(0, $portfolioTotalValue - $strategyTotalValue),
                 'byClass' => $this->groupAssetsBy($allAssets, 'classe'),
-                'byStrategy' => $this->groupAssetsBy($allAssets, 'estrategia'),
+                'byStrategy' => $strategySummary,
             ],
             'status' => $request->session()->get('status'),
+        ]);
+    }
+
+    public function exportPortfolio(Submission $submission): StreamedResponse
+    {
+        $this->authorize('view', $submission);
+
+        $submission = $this->loadSubmissionWorkspace($submission);
+        $filename = sprintf(
+            'submission-%s-portfolio.csv',
+            Str::substr($submission->getKey(), 0, 8),
+        );
+
+        return response()->streamDownload(function () use ($submission): void {
+            $stream = fopen('php://output', 'w');
+
+            if ($stream === false) {
+                throw new \RuntimeException('Unable to open the CSV output stream.');
+            }
+
+            fwrite($stream, "\xEF\xBB\xBF");
+            fputcsv($stream, $this->submissionPortfolioCsv->headers());
+
+            foreach ($this->submissionPortfolioCsv->exportRows($submission) as $row) {
+                fputcsv($stream, $row);
+            }
+
+            fclose($stream);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 
@@ -305,6 +336,27 @@ class SubmissionController extends Controller
                 ])
                 ->all(),
         ];
+    }
+
+    private function loadSubmissionWorkspace(Submission $submission): Submission
+    {
+        $submission->load([
+            'user:id,name,email',
+            'documents' => fn ($query) => $query->latest(),
+            'documents.extractedAssets.reviewer:id,name',
+        ]);
+
+        return $submission;
+    }
+
+    /**
+     * @return Collection<int, ExtractedAsset>
+     */
+    private function submissionAssets(Submission $submission): Collection
+    {
+        return $submission->documents
+            ->flatMap(fn (Document $document) => $document->extractedAssets)
+            ->values();
     }
 
     /**

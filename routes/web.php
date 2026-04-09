@@ -19,6 +19,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('submissions/create', [SubmissionController::class, 'create'])->name('submissions.create');
     Route::post('submissions', [SubmissionController::class, 'store'])->name('submissions.store');
     Route::get('submissions/{submission}', [SubmissionController::class, 'show'])->name('submissions.show');
+    Route::get('submissions/{submission}/portfolio', [SubmissionController::class, 'exportPortfolio'])->name('submissions.export');
     Route::post('submissions/{submission}/approve', [SubmissionController::class, 'approve'])->name('submissions.approve');
     Route::get('documents/{document}', [DocumentController::class, 'show'])->name('documents.show');
     Route::get('documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');

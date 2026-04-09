@@ -74,6 +74,109 @@ test('approve submission marks reviewed documents approved and completes submiss
     expect($submission->fresh()->status)->toBe(SubmissionStatus::Completed);
 });
 
+test('authorized users can view portfolio summary data and export a submission portfolio csv', function () {
+    $owner = User::factory()->asAnalyst()->create();
+    $admin = User::factory()->asAdmin()->create();
+    $submission = Submission::factory()->processing()->for($owner)->create([
+        'documents_count' => 1,
+    ]);
+    $document = Document::factory()->for($submission)->create([
+        'status' => DocumentStatus::Reviewed,
+        'original_filename' => 'portfolio.pdf',
+    ]);
+
+    ExtractedAsset::factory()->for($document)->reviewed($owner)->create([
+        'submission_id' => $submission->id,
+        'ativo' => 'PETR4',
+        'ticker' => 'PETR4',
+        'posicao' => '1.000,25',
+        'posicao_numeric' => 1000.25,
+        'classe' => 'Ações',
+        'estrategia' => 'Ações Brasil',
+        'classification_source' => ClassificationSource::Manual,
+        'confidence' => 0.91,
+    ]);
+    ExtractedAsset::factory()->for($document)->reviewed($owner)->create([
+        'submission_id' => $submission->id,
+        'ativo' => 'TESOURO SELIC',
+        'ticker' => null,
+        'posicao' => '500,00',
+        'posicao_numeric' => 500.00,
+        'classe' => 'Título Público',
+        'estrategia' => 'Renda Fixa Pós Fixada',
+        'classification_source' => ClassificationSource::Base1,
+        'confidence' => null,
+    ]);
+    ExtractedAsset::factory()->for($document)->create([
+        'submission_id' => $submission->id,
+        'ativo' => 'Caixa sem estratégia',
+        'ticker' => null,
+        'posicao' => '300,00',
+        'posicao_numeric' => 300.00,
+        'classe' => 'Caixa/Conta Corrente',
+        'estrategia' => null,
+        'classification_source' => ClassificationSource::Deterministic,
+        'is_reviewed' => false,
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('submissions.show', $submission))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('submissions/show')
+            ->where('portfolioSummary.totalValue', 1800.25)
+            ->where('portfolioSummary.strategyTotalValue', 1500.25)
+            ->where('portfolioSummary.unclassifiedValue', 300)
+            ->where('portfolioSummary.byStrategy.0.label', 'Ações Brasil')
+            ->where('portfolioSummary.byStrategy.0.totalValue', 1000.25)
+            ->where('portfolioSummary.byStrategy.1.label', 'Renda Fixa Pós Fixada')
+            ->where('portfolioSummary.byClass.0.label', 'Ações')
+        );
+
+    $response = $this->actingAs($owner)
+        ->get(route('submissions.export', $submission));
+
+    $response->assertOk();
+    $response->assertDownload(sprintf('submission-%s-portfolio.csv', substr($submission->id, 0, 8)));
+
+    $content = $response->streamedContent();
+    $lines = preg_split('/\r\n|\n|\r/', trim($content));
+
+    expect(str_getcsv(ltrim((string) $lines[0], "\xEF\xBB\xBF")))->toBe([
+        'Documento',
+        'Ativo',
+        'Ticker',
+        'Posição',
+        'Valor Normalizado',
+        'Classe',
+        'Estratégia',
+        'Fonte',
+        'Confiança',
+        'Revisado',
+        'Revisado Por',
+        'Revisado Em',
+    ]);
+    expect(str_getcsv((string) $lines[1]))->toBe([
+        'portfolio.pdf',
+        'PETR4',
+        'PETR4',
+        '1.000,25',
+        '1000.25',
+        'Ações',
+        'Ações Brasil',
+        'manual',
+        '0.91',
+        'yes',
+        $owner->name,
+        $document->extractedAssets()->firstWhere('ativo', 'PETR4')?->reviewed_at?->toIso8601String() ?? '',
+    ]);
+    expect($lines)->toHaveCount(4);
+
+    $this->actingAs($admin)
+        ->get(route('submissions.export', $submission))
+        ->assertOk();
+});
+
 test('submission approval requires every reviewable asset to be reviewed', function () {
     $analyst = User::factory()->asAnalyst()->create();
     $submission = Submission::factory()->processing()->for($analyst)->create([
@@ -114,5 +217,9 @@ test('viewer cannot review or approve another submission', function () {
 
     $this->actingAs($viewer)
         ->post(route('submissions.approve', $submission))
+        ->assertForbidden();
+
+    $this->actingAs($viewer)
+        ->get(route('submissions.export', $submission))
         ->assertForbidden();
 });
