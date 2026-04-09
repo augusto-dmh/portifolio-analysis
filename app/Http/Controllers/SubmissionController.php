@@ -10,6 +10,7 @@ use App\Jobs\ProcessSubmissionJob;
 use App\Models\Document;
 use App\Models\ExtractedAsset;
 use App\Models\Submission;
+use App\Services\DashboardStatsService;
 use App\Services\DocumentStatusMachine;
 use App\Services\DocumentStorageService;
 use App\Support\ClassificationOptions;
@@ -26,6 +27,7 @@ class SubmissionController extends Controller
 {
     public function __construct(
         private readonly ClassificationOptions $classificationOptions,
+        private readonly DashboardStatsService $dashboardStatsService,
     ) {}
 
     public function index(FilterSubmissionsRequest $request): InertiaResponse
@@ -111,6 +113,8 @@ class SubmissionController extends Controller
         if (config('portfolio.processing.auto_dispatch', false)) {
             ProcessSubmissionJob::dispatch($submission->getKey());
         }
+
+        $this->dashboardStatsService->dispatchRefreshForSubmission($submission);
 
         return to_route('submissions.show', $submission)
             ->with('status', trans_choice(':count document uploaded successfully.|:count documents uploaded successfully.', $documentsCount, [

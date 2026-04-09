@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ClassificationRuleController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExtractedAssetController;
 use App\Http\Controllers\SubmissionController;
@@ -13,7 +14,7 @@ Route::inertia('/', 'welcome', [
 ])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::get('submissions', [SubmissionController::class, 'index'])->name('submissions.index');
     Route::get('submissions/create', [SubmissionController::class, 'create'])->name('submissions.create');
     Route::post('submissions', [SubmissionController::class, 'store'])->name('submissions.store');

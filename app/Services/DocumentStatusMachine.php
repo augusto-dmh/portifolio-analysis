@@ -13,6 +13,10 @@ use InvalidArgumentException;
 
 class DocumentStatusMachine
 {
+    public function __construct(
+        private readonly DashboardStatsService $dashboardStatsService,
+    ) {}
+
     /**
      * @var array<string, array<int, string>>
      */
@@ -81,6 +85,8 @@ class DocumentStatusMachine
             failedDocumentsCount: $submission->failed_documents_count,
             completedAt: $submission->completed_at?->toIso8601String(),
         );
+
+        $this->dashboardStatsService->dispatchRefreshForSubmission($submission);
 
         return $submission;
     }
@@ -199,6 +205,8 @@ class DocumentStatusMachine
                 completedAt: $submission->completed_at?->toIso8601String(),
             );
         }
+
+        $this->dashboardStatsService->dispatchRefreshForSubmission($submission);
 
         return $submission->fresh();
     }
