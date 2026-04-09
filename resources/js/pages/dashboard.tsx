@@ -60,10 +60,11 @@ export default function Dashboard({
 }) {
     const { auth } = usePage().props as { auth: Auth };
     const isRefreshing = useRef(false);
+    const hasPendingRefresh = useRef(false);
 
     useDashboardChannel(auth.user.id, {
         onDashboardStatsUpdated: () => {
-            reloadDashboard(isRefreshing);
+            queueDashboardReload(isRefreshing, hasPendingRefresh);
         },
     });
 
@@ -263,8 +264,13 @@ Dashboard.layout = {
     ],
 };
 
-function reloadDashboard(isRefreshing: MutableRefObject<boolean>): void {
+function queueDashboardReload(
+    isRefreshing: MutableRefObject<boolean>,
+    hasPendingRefresh: MutableRefObject<boolean>,
+): void {
     if (isRefreshing.current) {
+        hasPendingRefresh.current = true;
+
         return;
     }
 
@@ -274,6 +280,13 @@ function reloadDashboard(isRefreshing: MutableRefObject<boolean>): void {
         router.reload({
             only: ['stats', 'recentSubmissions'],
             onFinish: () => {
+                if (hasPendingRefresh.current) {
+                    hasPendingRefresh.current = false;
+                    queueDashboardReload(isRefreshing, hasPendingRefresh);
+
+                    return;
+                }
+
                 isRefreshing.current = false;
             },
         });
