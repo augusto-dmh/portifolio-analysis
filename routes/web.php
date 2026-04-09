@@ -26,6 +26,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::middleware('can:admin')->group(function () {
         Route::get('classification-rules', [ClassificationRuleController::class, 'index'])->name('classification-rules.index');
+        Route::get('classification-rules/export', [ClassificationRuleController::class, 'export'])->name('classification-rules.export');
+        Route::post('classification-rules/import', [ClassificationRuleController::class, 'import'])->name('classification-rules.import');
         Route::post('classification-rules', [ClassificationRuleController::class, 'store'])->name('classification-rules.store');
         Route::put('classification-rules/{classificationRule}', [ClassificationRuleController::class, 'update'])->name('classification-rules.update');
         Route::delete('classification-rules/{classificationRule}', [ClassificationRuleController::class, 'destroy'])->name('classification-rules.destroy');

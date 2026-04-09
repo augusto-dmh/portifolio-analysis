@@ -66,6 +66,18 @@ export default function ClassificationRulesIndex({
         priority: 0,
         is_active: true,
     });
+    const importForm = useForm<{
+        file: File | null;
+    }>({
+        file: null,
+    });
+    const exportUrl = ClassificationRuleController.export.url({
+        query: {
+            search: filters.search || undefined,
+            match_type: filters.matchType || undefined,
+            active: filters.active === 'all' ? undefined : filters.active,
+        },
+    });
 
     return (
         <>
@@ -254,6 +266,69 @@ export default function ClassificationRulesIndex({
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
+                            <div className="flex flex-col gap-4 rounded-2xl border border-sidebar-border/70 bg-muted/20 p-4 lg:flex-row lg:items-end lg:justify-between">
+                                <div className="space-y-1">
+                                    <p className="font-medium">
+                                        Bulk CSV workflow
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        Export the rule catalog for offline
+                                        edits or import a CSV to create and
+                                        update rules in bulk.
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                                    <form
+                                        className="flex flex-col gap-3 lg:flex-row lg:items-end"
+                                        onSubmit={(event) => {
+                                            event.preventDefault();
+                                            importForm.post(
+                                                ClassificationRuleController.import.url(),
+                                                {
+                                                    preserveScroll: true,
+                                                },
+                                            );
+                                        }}
+                                    >
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="rules_csv">
+                                                CSV file
+                                            </Label>
+                                            <Input
+                                                id="rules_csv"
+                                                type="file"
+                                                accept=".csv,text/csv"
+                                                onChange={(event) =>
+                                                    importForm.setData(
+                                                        'file',
+                                                        event.target
+                                                            .files?.[0] ?? null,
+                                                    )
+                                                }
+                                            />
+                                            <InputError
+                                                message={importForm.errors.file}
+                                            />
+                                        </div>
+
+                                        <Button
+                                            disabled={
+                                                importForm.processing ||
+                                                importForm.data.file === null
+                                            }
+                                            variant="outline"
+                                        >
+                                            Import CSV
+                                        </Button>
+                                    </form>
+
+                                    <Button asChild>
+                                        <a href={exportUrl}>Export CSV</a>
+                                    </Button>
+                                </div>
+                            </div>
+
                             <Form
                                 action={classificationRulesIndex.url()}
                                 method={classificationRulesIndex().method}
