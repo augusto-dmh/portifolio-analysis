@@ -1,5 +1,6 @@
 <?php
 
+use App\Ai\Agents\ExtractionAgent;
 use App\Enums\ClassificationSource;
 use App\Enums\DocumentStatus;
 use App\Enums\MatchType;
@@ -14,6 +15,7 @@ use App\Models\User;
 use App\Services\ClassificationService;
 use App\Services\CsvPortfolioExtractor;
 use App\Services\DocumentStatusMachine;
+use App\Support\PortfolioNormalizer;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 
@@ -48,6 +50,7 @@ CSV);
     app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
         app(CsvPortfolioExtractor::class),
         app(DocumentStatusMachine::class),
+        app(PortfolioNormalizer::class),
     );
 
     $document->refresh();
@@ -81,8 +84,15 @@ CSV);
     expect($tesouro?->estrategia)->toBe('Renda Fixa Pós Fixada');
 });
 
-test('non csv documents fail extraction until ai extraction is installed', function () {
+test('pdf documents are extracted via the ai extraction agent', function () {
     Storage::fake('local');
+
+    ExtractionAgent::fake(fn () => [
+        'assets' => [
+            ['ativo' => 'PETR4', 'posicao' => '59.000,00'],
+            ['ativo' => 'Tesouro Selic 2029', 'posicao' => '10.000,00'],
+        ],
+    ]);
 
     $submission = Submission::factory()->create();
     $document = Document::factory()->for($submission)->create([
@@ -98,12 +108,17 @@ test('non csv documents fail extraction until ai extraction is installed', funct
     app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
         app(CsvPortfolioExtractor::class),
         app(DocumentStatusMachine::class),
+        app(PortfolioNormalizer::class),
     );
 
     $document->refresh();
 
-    expect($document->status)->toBe(DocumentStatus::ExtractionFailed);
-    expect($document->error_message)->toContain('laravel/ai');
+    expect($document->status)->toBe(DocumentStatus::Extracted);
+    expect($document->extraction_method)->toBe('ai_multimodal');
+    expect($document->extracted_assets_count)->toBe(2);
+    expect($document->ai_model_used)->toBe(config('portfolio.ai.extraction_model'));
+
+    ExtractionAgent::assertPrompted(fn ($prompt) => $prompt->contains('documento de carteira'));
 });
 
 test('process submission job dispatches document pipeline work for eligible documents', function () {

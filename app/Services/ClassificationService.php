@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Ai\Agents\ClassificationAgent;
 use App\Enums\ClassificationSource;
 use App\Enums\MatchType;
 use App\Models\ClassificationRule;
@@ -26,17 +27,36 @@ class ClassificationService
 
         $document->loadMissing('extractedAssets');
 
-        foreach ($document->extractedAssets as $asset) {
-            $classification = $this->classifyAsset($asset);
+        $pendingAssets = [];
 
-            if ($classification === null) {
-                $unresolved++;
+        foreach ($document->extractedAssets as $asset) {
+            $classification = $this->classifyViaBase1OrDeterministic($asset);
+
+            if ($classification !== null) {
+                $asset->forceFill($classification)->save();
+                $classified++;
 
                 continue;
             }
 
-            $asset->forceFill($classification)->save();
-            $classified++;
+            $pendingAssets[] = $asset;
+        }
+
+        if ($pendingAssets !== []) {
+            $aiResults = $this->classifyViaAi($pendingAssets);
+
+            foreach ($pendingAssets as $index => $asset) {
+                $result = $aiResults[$index] ?? null;
+
+                if ($result === null) {
+                    $unresolved++;
+
+                    continue;
+                }
+
+                $asset->forceFill($result)->save();
+                $classified++;
+            }
         }
 
         return [
@@ -48,7 +68,7 @@ class ClassificationService
     /**
      * @return array<string, mixed>|null
      */
-    private function classifyAsset(ExtractedAsset $asset): ?array
+    private function classifyViaBase1OrDeterministic(ExtractedAsset $asset): ?array
     {
         $rule = $this->matchRule($asset);
 
@@ -76,6 +96,49 @@ class ClassificationService
             'classification_source' => ClassificationSource::Deterministic,
             'confidence' => null,
         ];
+    }
+
+    /**
+     * @param  ExtractedAsset[]  $assets
+     * @return array<int, array<string, mixed>>
+     */
+    private function classifyViaAi(array $assets): array
+    {
+        $batchSize = (int) config('portfolio.ai.classification_batch_size', 50);
+        $results = [];
+
+        foreach (array_chunk($assets, $batchSize, true) as $chunk) {
+            $lines = array_map(
+                fn (ExtractedAsset $asset) => "{$asset->ativo}; {$asset->posicao}",
+                $chunk,
+            );
+
+            $prompt = implode("\n", $lines);
+
+            $response = (new ClassificationAgent)->prompt(
+                $prompt,
+                model: config('portfolio.ai.classification_model'),
+            );
+
+            $classifications = $response['classifications'] ?? [];
+
+            foreach (array_values($chunk) as $index => $asset) {
+                $classification = $classifications[$index] ?? null;
+
+                if ($classification === null) {
+                    continue;
+                }
+
+                $results[array_search($asset, $assets, true)] = [
+                    'classe' => $classification['classe'],
+                    'estrategia' => $classification['estrategia'],
+                    'confidence' => (float) $classification['confidence'],
+                    'classification_source' => ClassificationSource::Ai,
+                ];
+            }
+        }
+
+        return $results;
     }
 
     private function matchRule(ExtractedAsset $asset): ?ClassificationRule
