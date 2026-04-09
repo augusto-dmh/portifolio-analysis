@@ -1,6 +1,5 @@
 import { Form, Head, Link, router, useForm } from '@inertiajs/react';
 import { startTransition, useEffect, useRef, useState } from 'react';
-import type { MutableRefObject } from 'react';
 import ExtractedAssetController from '@/actions/App/Http/Controllers/ExtractedAssetController';
 import SubmissionController from '@/actions/App/Http/Controllers/SubmissionController';
 import InputError from '@/components/input-error';
@@ -21,6 +20,13 @@ import type {
     SubmissionStatusChangedEvent,
 } from '@/hooks/use-submission-channel';
 import AppLayout from '@/layouts/app-layout';
+import {
+    buildDocumentFailureToast,
+    buildSubmissionStatusToast,
+    queueRefreshOnEvent,
+    queueRefreshOnFinish,
+    shouldNotifyForDocumentFailure,
+} from '@/pages/submissions/live-submission-feedback';
 import { dashboard } from '@/routes';
 import { show as documentsShow } from '@/routes/documents';
 import {
@@ -156,10 +162,7 @@ export default function SubmissionShow({
     };
 
     const notifyForDocumentStatus = (event: DocumentStatusChangedEvent) => {
-        if (
-            event.statusTo !== 'extraction_failed' &&
-            event.statusTo !== 'classification_failed'
-        ) {
+        if (!shouldNotifyForDocumentFailure(event)) {
             return;
         }
 
@@ -167,18 +170,16 @@ export default function SubmissionShow({
             (item) => item.id === event.documentId,
         );
 
-        toast({
-            title: 'Document processing failed',
-            description: document
-                ? `${document.originalFilename} needs attention before this submission can finish cleanly.`
-                : 'A document in this submission needs attention before processing can finish cleanly.',
-            variant: 'destructive',
-            key: `document-failure:${event.documentId}`,
-        });
+        toast(
+            buildDocumentFailureToast(
+                event.documentId,
+                document?.originalFilename,
+            ),
+        );
     };
 
     const notifyForSubmissionStatus = (event: SubmissionStatusChangedEvent) => {
-        const nextToast = submissionStatusToast(event);
+        const nextToast = buildSubmissionStatusToast(event);
 
         if (nextToast !== null) {
             toast(nextToast);
@@ -820,12 +821,14 @@ function formatCurrency(value: number): string {
 }
 
 function queueSubmissionDetailsReload(
-    isRefreshing: MutableRefObject<boolean>,
-    hasPendingRefresh: MutableRefObject<boolean>,
+    isRefreshing: React.RefObject<boolean>,
+    hasPendingRefresh: React.RefObject<boolean>,
 ): void {
-    if (isRefreshing.current) {
-        hasPendingRefresh.current = true;
+    const nextRefresh = queueRefreshOnEvent(isRefreshing.current);
 
+    hasPendingRefresh.current = nextRefresh.hasPendingRefresh;
+
+    if (!nextRefresh.shouldReloadNow) {
         return;
     }
 
@@ -841,9 +844,14 @@ function queueSubmissionDetailsReload(
                 'portfolioSummary',
             ],
             onFinish: () => {
-                if (hasPendingRefresh.current) {
-                    hasPendingRefresh.current = false;
-                    isRefreshing.current = false;
+                const pendingRefresh = queueRefreshOnFinish(
+                    hasPendingRefresh.current,
+                );
+
+                hasPendingRefresh.current = pendingRefresh.hasPendingRefresh;
+                isRefreshing.current = false;
+
+                if (pendingRefresh.shouldReloadNow) {
                     queueSubmissionDetailsReload(
                         isRefreshing,
                         hasPendingRefresh,
@@ -851,8 +859,6 @@ function queueSubmissionDetailsReload(
 
                     return;
                 }
-
-                isRefreshing.current = false;
             },
         });
     });
@@ -897,42 +903,4 @@ function liveBadgeClass(isHighlighted: boolean): string | undefined {
     }
 
     return 'ring-2 ring-amber-300 shadow-[0_0_0_0.35rem_rgba(252,211,77,0.22)] transition-all duration-700 animate-pulse';
-}
-
-function submissionStatusToast(event: SubmissionStatusChangedEvent): {
-    title: string;
-    description: string;
-    variant: 'success' | 'warning' | 'destructive';
-    key: string;
-} | null {
-    if (event.statusTo === 'completed') {
-        return {
-            title: 'Submission completed',
-            description:
-                'All documents finished processing and the review workspace is ready.',
-            variant: 'success',
-            key: `submission-status:${event.submissionId}:completed`,
-        };
-    }
-
-    if (event.statusTo === 'partially_complete') {
-        return {
-            title: 'Submission finished with failures',
-            description: `${event.failedDocumentsCount} of ${event.documentsCount} documents failed during processing.`,
-            variant: 'warning',
-            key: `submission-status:${event.submissionId}:partially-complete`,
-        };
-    }
-
-    if (event.statusTo === 'failed') {
-        return {
-            title: 'Submission failed',
-            description:
-                'Every document in this submission failed processing. Review the document details and retry the batch.',
-            variant: 'destructive',
-            key: `submission-status:${event.submissionId}:failed`,
-        };
-    }
-
-    return null;
 }

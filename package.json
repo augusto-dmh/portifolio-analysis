@@ -10,6 +10,7 @@
         "format:check": "prettier --check resources/",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
+        "test:frontend": "node --experimental-strip-types --test tests/frontend/toast-provider-state.test.ts tests/frontend/live-submission-feedback.test.ts",
         "types:check": "php artisan wayfinder:generate && tsc --noEmit"
     },
     "devDependencies": {
