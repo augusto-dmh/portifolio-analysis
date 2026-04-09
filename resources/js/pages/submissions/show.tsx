@@ -1,4 +1,6 @@
-import { Form, Head, Link, useForm } from '@inertiajs/react';
+import { Form, Head, Link, router, useForm } from '@inertiajs/react';
+import { startTransition, useRef } from 'react';
+import type { MutableRefObject } from 'react';
 import ExtractedAssetController from '@/actions/App/Http/Controllers/ExtractedAssetController';
 import SubmissionController from '@/actions/App/Http/Controllers/SubmissionController';
 import InputError from '@/components/input-error';
@@ -12,6 +14,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import { useSubmissionChannel } from '@/hooks/use-submission-channel';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { show as documentsShow } from '@/routes/documents';
@@ -98,6 +101,17 @@ export default function SubmissionShow({
         byStrategy: SummaryRow[];
     };
 }) {
+    const isRefreshing = useRef(false);
+
+    useSubmissionChannel(submission.id, {
+        onDocumentStatusChanged: () => {
+            reloadSubmissionDetails(isRefreshing);
+        },
+        onSubmissionStatusChanged: () => {
+            reloadSubmissionDetails(isRefreshing);
+        },
+    });
+
     const totalAssets = submission.documents.reduce(
         (sum, document) => sum + document.extractedAssetsCount,
         0,
@@ -125,6 +139,9 @@ export default function SubmissionShow({
                                     variant={badgeVariant(submission.status)}
                                 >
                                     {formatStatus(submission.status)}
+                                </Badge>
+                                <Badge variant="outline">
+                                    Live updates active
                                 </Badge>
                             </div>
                             <p className="max-w-2xl text-sm text-muted-foreground">
@@ -683,6 +700,31 @@ function formatCurrency(value: number): string {
         currency: 'BRL',
         maximumFractionDigits: 2,
     }).format(value);
+}
+
+function reloadSubmissionDetails(
+    isRefreshing: MutableRefObject<boolean>,
+): void {
+    if (isRefreshing.current) {
+        return;
+    }
+
+    isRefreshing.current = true;
+
+    startTransition(() => {
+        router.reload({
+            only: [
+                'submission',
+                'canReview',
+                'canApprove',
+                'classificationOptions',
+                'portfolioSummary',
+            ],
+            onFinish: () => {
+                isRefreshing.current = false;
+            },
+        });
+    });
 }
 
 function formatFileSize(bytes: number): string {

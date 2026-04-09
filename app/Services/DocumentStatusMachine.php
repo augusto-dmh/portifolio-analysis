@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Enums\DocumentStatus;
 use App\Enums\SubmissionStatus;
+use App\Events\DocumentStatusChanged;
+use App\Events\SubmissionStatusChanged;
 use App\Models\Document;
 use App\Models\ProcessingEvent;
 use App\Models\Submission;
@@ -70,7 +72,17 @@ class DocumentStatusMachine
             metadata: $metadata,
         );
 
-        return $submission->fresh();
+        SubmissionStatusChanged::dispatch(
+            submissionId: $submission->getKey(),
+            statusFrom: $originalStatus->value,
+            statusTo: SubmissionStatus::Processing->value,
+            documentsCount: $submission->documents_count,
+            processedDocumentsCount: $submission->processed_documents_count,
+            failedDocumentsCount: $submission->failed_documents_count,
+            completedAt: $submission->completed_at?->toIso8601String(),
+        );
+
+        return $submission;
     }
 
     public function transitionDocument(
@@ -106,18 +118,31 @@ class DocumentStatusMachine
             metadata: $metadata,
         );
 
-        $this->syncSubmission($document->submission, $triggeredBy);
+        $document = $document->fresh();
+        $submission = $this->syncSubmission($document->submission, $triggeredBy);
+
+        DocumentStatusChanged::dispatch(
+            submissionId: $document->submission_id,
+            documentId: $document->getKey(),
+            statusFrom: $from->value,
+            statusTo: $to->value,
+            eventType: $eventType,
+            submissionStatus: $submission->status->value,
+            documentsCount: $submission->documents_count,
+            processedDocumentsCount: $submission->processed_documents_count,
+            failedDocumentsCount: $submission->failed_documents_count,
+        );
 
         if ($to === DocumentStatus::Classified) {
             return $this->transitionDocument(
-                $document->fresh(),
+                $document,
                 DocumentStatus::ReadyForReview,
                 'automatic_transition',
                 $triggeredBy,
             );
         }
 
-        return $document->fresh();
+        return $document;
     }
 
     public function syncSubmission(
@@ -162,6 +187,16 @@ class DocumentStatusMachine
                 statusTo: $status->value,
                 eventType: 'status_change',
                 triggeredBy: $triggeredBy,
+            );
+
+            SubmissionStatusChanged::dispatch(
+                submissionId: $submission->getKey(),
+                statusFrom: $originalStatus->value,
+                statusTo: $status->value,
+                documentsCount: $submission->documents_count,
+                processedDocumentsCount: $submission->processed_documents_count,
+                failedDocumentsCount: $submission->failed_documents_count,
+                completedAt: $submission->completed_at?->toIso8601String(),
             );
         }
 
