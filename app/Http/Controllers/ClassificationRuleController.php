@@ -3,59 +3,35 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MatchType;
+use App\Http\Requests\ImportClassificationRulesRequest;
 use App\Http\Requests\StoreClassificationRuleRequest;
 use App\Http\Requests\UpdateClassificationRuleRequest;
 use App\Models\ClassificationRule;
 use App\Models\ExtractedAsset;
 use App\Support\ClassificationOptions;
+use App\Support\ClassificationRuleCsv;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ClassificationRuleController extends Controller
 {
     public function __construct(
         private readonly ClassificationOptions $classificationOptions,
+        private readonly ClassificationRuleCsv $classificationRuleCsv,
     ) {}
 
     public function index(Request $request): Response
     {
         abort_unless($request->user()?->can('admin'), 403);
 
-        $filters = $request->validate([
-            'search' => ['nullable', 'string', 'max:255'],
-            'match_type' => ['nullable', 'string'],
-            'active' => ['nullable', 'in:all,active,inactive'],
-        ]);
+        $filters = $this->validatedFilters($request);
 
-        $rules = ClassificationRule::query()
-            ->with('creator:id,name')
-            ->when(
-                filled($filters['search'] ?? null),
-                function ($query) use ($filters) {
-                    $search = trim((string) $filters['search']);
-
-                    $query->where(function ($nestedQuery) use ($search): void {
-                        $nestedQuery
-                            ->where('chave', 'like', '%'.$search.'%')
-                            ->orWhere('classe', 'like', '%'.$search.'%')
-                            ->orWhere('estrategia', 'like', '%'.$search.'%');
-                    });
-                },
-            )
-            ->when(
-                filled($filters['match_type'] ?? null),
-                fn ($query) => $query->where('match_type', $filters['match_type']),
-            )
-            ->when(
-                ($filters['active'] ?? 'all') !== 'all',
-                fn ($query) => $query->where('is_active', ($filters['active'] ?? 'all') === 'active'),
-            )
-            ->orderByDesc('is_active')
-            ->orderBy('priority')
-            ->orderBy('chave')
+        $rules = $this->filteredRulesQuery($filters)
             ->get()
             ->map(fn (ClassificationRule $rule): array => [
                 'id' => $rule->getKey(),
@@ -95,6 +71,46 @@ class ClassificationRuleController extends Controller
             ],
             'status' => $request->session()->get('status'),
         ]);
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        abort_unless($request->user()?->can('admin'), 403);
+
+        $rules = $this->filteredRulesQuery($this->validatedFilters($request))->get();
+
+        return response()->streamDownload(function () use ($rules): void {
+            $stream = fopen('php://output', 'w');
+
+            if ($stream === false) {
+                throw new \RuntimeException('Unable to open the CSV output stream.');
+            }
+
+            fwrite($stream, "\xEF\xBB\xBF");
+            fputcsv($stream, $this->classificationRuleCsv->headers());
+
+            foreach ($this->classificationRuleCsv->exportRows($rules) as $row) {
+                fputcsv($stream, $row);
+            }
+
+            fclose($stream);
+        }, 'classification-rules.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function import(ImportClassificationRulesRequest $request): RedirectResponse
+    {
+        $result = $this->classificationRuleCsv->import(
+            $request->file('file'),
+            $request->user()?->id,
+        );
+
+        return to_route('classification-rules.index')
+            ->with(
+                'status',
+                "Classification rules imported ({$result['created']} created, {$result['updated']} updated).",
+            );
     }
 
     public function store(StoreClassificationRuleRequest $request): RedirectResponse
@@ -142,5 +158,57 @@ class ClassificationRuleController extends Controller
 
         return to_route('classification-rules.index')
             ->with('status', 'Classification rule deleted.');
+    }
+
+    /**
+     * @return array{search:?string,match_type:?string,active:string}
+     */
+    private function validatedFilters(Request $request): array
+    {
+        /** @var array{search?:?string,match_type?:?string,active?:string} $filters */
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+            'match_type' => ['nullable', 'string'],
+            'active' => ['nullable', 'in:all,active,inactive'],
+        ]);
+
+        return [
+            'search' => $filters['search'] ?? null,
+            'match_type' => $filters['match_type'] ?? null,
+            'active' => $filters['active'] ?? 'all',
+        ];
+    }
+
+    /**
+     * @param  array{search:?string,match_type:?string,active:string}  $filters
+     */
+    private function filteredRulesQuery(array $filters): Builder
+    {
+        return ClassificationRule::query()
+            ->with('creator:id,name')
+            ->when(
+                filled($filters['search']),
+                function ($query) use ($filters) {
+                    $search = trim((string) $filters['search']);
+
+                    $query->where(function ($nestedQuery) use ($search): void {
+                        $nestedQuery
+                            ->where('chave', 'like', '%'.$search.'%')
+                            ->orWhere('classe', 'like', '%'.$search.'%')
+                            ->orWhere('estrategia', 'like', '%'.$search.'%');
+                    });
+                },
+            )
+            ->when(
+                filled($filters['match_type']),
+                fn ($query) => $query->where('match_type', $filters['match_type']),
+            )
+            ->when(
+                $filters['active'] !== 'all',
+                fn ($query) => $query->where('is_active', $filters['active'] === 'active'),
+            )
+            ->orderByDesc('is_active')
+            ->orderBy('priority')
+            ->orderBy('chave');
     }
 }
