@@ -12,7 +12,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 
-#[Fillable(['name', 'email', 'password', 'role'])]
+#[Fillable(['name', 'email', 'password', 'role', 'is_active'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -29,6 +29,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'role' => UserRole::class,
+            'is_active' => 'boolean',
         ];
     }
 
@@ -45,6 +46,11 @@ class User extends Authenticatable
     public function isViewer(): bool
     {
         return $this->role === UserRole::Viewer;
+    }
+
+    public function isActive(): bool
+    {
+        return $this->is_active;
     }
 
     public function submissions(): HasMany
