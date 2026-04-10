@@ -10,3 +10,7 @@ arch('portfolio models')
 arch('portfolio enums')
     ->expect('App\Enums')
     ->toBeEnums();
+
+arch('controllers do not use the db facade directly')
+    ->expect('App\Http\Controllers')
+    ->not->toUse('Illuminate\Support\Facades\DB');

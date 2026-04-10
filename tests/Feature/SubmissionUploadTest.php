@@ -6,9 +6,12 @@ use App\Jobs\ProcessSubmissionJob;
 use App\Models\Document;
 use App\Models\Submission;
 use App\Models\User;
+use App\Services\DocumentStorageService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 
 test('guests are redirected from submission creation routes', function () {
     $this->get(route('submissions.create'))->assertRedirect(route('login'));
@@ -128,6 +131,50 @@ test('submission validation rejects documents larger than the configured limit',
 
     $response->assertSessionHasErrors('documents.0');
     expect(Submission::query()->count())->toBe(0);
+});
+
+test('submission upload cleans up stored files when persistence fails mid-transaction', function () {
+    Storage::fake('local');
+
+    $storedPaths = [];
+    $calls = 0;
+
+    $this->mock(DocumentStorageService::class, function (MockInterface $mock) use (&$calls, &$storedPaths) {
+        $mock->shouldReceive('store')->twice()->andReturnUsing(function (Submission $submission, UploadedFile $file) use (&$calls, &$storedPaths): array {
+            $calls++;
+            $path = 'submissions/'.$submission->getKey().'/partial-'.$calls.'.pdf';
+
+            Storage::disk('local')->put($path, 'fake file body');
+            $storedPaths[] = $path;
+
+            return [
+                'storage_path' => $path,
+                'original_filename' => $calls === 2 ? null : $file->getClientOriginalName(),
+                'mime_type' => 'application/pdf',
+                'file_extension' => '.pdf',
+                'file_size_bytes' => $file->getSize() ?? 0,
+                'is_processable' => true,
+            ];
+        });
+    });
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $this->withoutExceptionHandling();
+
+    expect(fn () => $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('first.pdf', 64, 'application/pdf'),
+            UploadedFile::fake()->create('second.pdf', 64, 'application/pdf'),
+        ],
+    ]))->toThrow(QueryException::class);
+
+    expect(Submission::query()->count())->toBe(0);
+    expect(Document::query()->count())->toBe(0);
+
+    foreach ($storedPaths as $storedPath) {
+        Storage::disk('local')->assertMissing($storedPath);
+    }
 });
 
 test('submission uploads are rate limited after the configured threshold', function () {
