@@ -87,6 +87,41 @@ test('unsupported file types fail extraction gracefully', function () {
     expect($document->error_message)->toContain('.xlsx');
 });
 
+test('csv documents fail extraction when no assets are found', function () {
+    Storage::fake('local');
+
+    $submission = Submission::factory()->create();
+    $document = Document::factory()->for($submission)->create([
+        'original_filename' => 'empty.csv',
+        'file_extension' => '.csv',
+        'mime_type' => 'text/csv',
+        'storage_path' => 'submissions/'.$submission->getKey().'/empty.csv',
+        'status' => DocumentStatus::Uploaded,
+    ]);
+    ExtractedAsset::factory()->for($document)->for($submission)->create([
+        'ativo' => 'STALE ASSET',
+        'posicao' => '1.000,00',
+        'posicao_numeric' => 1000.00,
+    ]);
+
+    Storage::disk('local')->put($document->storage_path, <<<'CSV'
+Ativo;Posicao
+;
+CSV);
+
+    app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
+        app(CsvPortfolioExtractor::class),
+        app(DocumentStatusMachine::class),
+        app(PortfolioNormalizer::class),
+    );
+
+    $document->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::ExtractionFailed);
+    expect($document->error_message)->toBe('No assets were extracted from the document.');
+    expect($document->extractedAssets()->count())->toBe(0);
+});
+
 test('not processable documents fail extraction immediately', function () {
     Storage::fake('local');
 
@@ -107,6 +142,42 @@ test('not processable documents fail extraction immediately', function () {
 
     expect($document->status)->toBe(DocumentStatus::ExtractionFailed);
     expect($document->error_message)->toContain('not processable');
+});
+
+test('ai extraction fails when no assets are returned', function () {
+    Storage::fake('local');
+
+    ExtractionAgent::fake(fn () => [
+        'assets' => [],
+    ]);
+
+    $submission = Submission::factory()->create();
+    $document = Document::factory()->for($submission)->create([
+        'original_filename' => 'empty.pdf',
+        'file_extension' => '.pdf',
+        'mime_type' => 'application/pdf',
+        'storage_path' => 'submissions/'.$submission->getKey().'/empty.pdf',
+        'status' => DocumentStatus::Uploaded,
+    ]);
+    ExtractedAsset::factory()->for($document)->for($submission)->create([
+        'ativo' => 'STALE AI ASSET',
+        'posicao' => '2.000,00',
+        'posicao_numeric' => 2000.00,
+    ]);
+
+    Storage::disk('local')->put($document->storage_path, 'fake pdf body');
+
+    app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
+        app(CsvPortfolioExtractor::class),
+        app(DocumentStatusMachine::class),
+        app(PortfolioNormalizer::class),
+    );
+
+    $document->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::ExtractionFailed);
+    expect($document->error_message)->toBe('No assets were extracted from the document.');
+    expect($document->extractedAssets()->count())->toBe(0);
 });
 
 test('ai classification is used as tier 3 for assets unresolved by base1 and deterministic rules', function () {
