@@ -44,10 +44,15 @@ class UpdateUserRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->merge([
+        $data = [
             'name' => is_string($this->input('name')) ? trim($this->input('name')) : $this->input('name'),
             'email' => is_string($this->input('email')) ? trim($this->input('email')) : $this->input('email'),
-            'is_active' => $this->boolean('is_active'),
-        ]);
+        ];
+
+        if ($this->has('is_active')) {
+            $data['is_active'] = $this->boolean('is_active');
+        }
+
+        $this->merge($data);
     }
 }
