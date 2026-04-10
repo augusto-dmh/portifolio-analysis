@@ -113,6 +113,23 @@ test('submission validation rejects unsupported document types', function () {
     expect(Submission::query()->count())->toBe(0);
 });
 
+test('submission validation rejects documents larger than the configured limit', function () {
+    Storage::fake('local');
+
+    config()->set('portfolio.upload.max_file_size_mb', 1);
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $response = $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('oversized.pdf', 2048, 'application/pdf'),
+        ],
+    ]);
+
+    $response->assertSessionHasErrors('documents.0');
+    expect(Submission::query()->count())->toBe(0);
+});
+
 test('submission uploads are rate limited after the configured threshold', function () {
     Storage::fake('local');
 
