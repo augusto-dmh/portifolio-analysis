@@ -1,5 +1,6 @@
 <?php
 
+use App\Ai\Agents\ClassificationAgent;
 use App\Ai\Agents\ExtractionAgent;
 use App\Enums\ClassificationSource;
 use App\Enums\DocumentStatus;
@@ -10,12 +11,14 @@ use App\Jobs\ExtractDocumentJob;
 use App\Jobs\ProcessSubmissionJob;
 use App\Models\ClassificationRule;
 use App\Models\Document;
+use App\Models\ProcessingEvent;
 use App\Models\Submission;
 use App\Models\User;
 use App\Services\ClassificationService;
 use App\Services\CsvPortfolioExtractor;
 use App\Services\DocumentStatusMachine;
 use App\Support\PortfolioNormalizer;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 
@@ -158,4 +161,133 @@ test('portfolio reprocess command dispatches the process submission job', functi
     ])->assertSuccessful();
 
     Bus::assertDispatched(ProcessSubmissionJob::class, fn ($job) => $job->submissionId === $submission->getKey());
+});
+
+test('submission workflow can run from upload through review and approval', function () {
+    Storage::fake('local');
+
+    ClassificationAgent::fake(fn () => [
+        'classifications' => [
+            [
+                'classe' => 'COE',
+                'estrategia' => 'Outros',
+                'confidence' => 0.91,
+            ],
+        ],
+    ]);
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    ClassificationRule::query()->create([
+        'chave' => 'PETR4',
+        'chave_normalized' => 'PETR4',
+        'classe' => 'Ações',
+        'estrategia' => 'Ações Brasil',
+        'match_type' => MatchType::Exact,
+        'priority' => 100,
+        'is_active' => true,
+    ]);
+
+    $upload = UploadedFile::fake()->createWithContent(
+        'portfolio.csv',
+        <<<'CSV'
+Ativo;Posicao
+PETR4;59.000,00
+COE Autocall Petrobras venc 2025;10.000,00
+CSV,
+    );
+
+    $this->actingAs($analyst)
+        ->post(route('submissions.store'), [
+            'email_lead' => 'lead@example.com',
+            'observation' => 'Full pipeline integration',
+            'documents' => [$upload],
+        ])
+        ->assertRedirect();
+
+    /** @var Submission $submission */
+    $submission = Submission::query()->latest()->firstOrFail();
+    /** @var Document $document */
+    $document = $submission->documents()->firstOrFail();
+
+    expect($submission->status)->toBe(SubmissionStatus::Pending);
+    expect($document->status)->toBe(DocumentStatus::Uploaded);
+
+    Storage::disk('local')->assertExists($document->storage_path);
+
+    app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
+        app(CsvPortfolioExtractor::class),
+        app(DocumentStatusMachine::class),
+        app(PortfolioNormalizer::class),
+    );
+
+    $document->refresh();
+    $submission->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::Extracted);
+    expect($submission->status)->toBe(SubmissionStatus::Processing);
+    expect($document->extractedAssets()->count())->toBe(2);
+
+    app(ClassifyAssetsJob::class, ['documentId' => $document->getKey()])->handle(
+        app(ClassificationService::class),
+        app(DocumentStatusMachine::class),
+    );
+
+    $document->refresh();
+    $submission->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::ReadyForReview);
+    expect($submission->status)->toBe(SubmissionStatus::Processing);
+
+    $assets = $document->extractedAssets()->orderBy('ativo')->get();
+
+    expect($assets->pluck('classification_source')->map->value->all())->toEqualCanonicalizing([
+        ClassificationSource::Base1->value,
+        ClassificationSource::Ai->value,
+    ]);
+
+    foreach ($assets as $asset) {
+        $this->actingAs($analyst)
+            ->put(route('extracted-assets.update', $asset), [
+                'classe' => $asset->classe,
+                'estrategia' => $asset->estrategia,
+            ])
+            ->assertRedirect();
+    }
+
+    $document->refresh();
+    $submission->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::Reviewed);
+    expect($document->extractedAssets()->where('is_reviewed', false)->doesntExist())->toBeTrue();
+    expect($document->extractedAssets()->where('classification_source', ClassificationSource::Manual)->count())->toBe(2);
+    expect($submission->status)->toBe(SubmissionStatus::Processing);
+
+    $this->actingAs($analyst)
+        ->post(route('submissions.approve', $submission))
+        ->assertRedirect(route('submissions.show', $submission));
+
+    $document->refresh();
+    $submission->refresh();
+
+    expect($document->status)->toBe(DocumentStatus::Approved);
+    expect($submission->status)->toBe(SubmissionStatus::Completed);
+    expect($submission->processed_documents_count)->toBe(1);
+    expect($submission->failed_documents_count)->toBe(0);
+
+    $eventTypes = ProcessingEvent::query()
+        ->where('trace_id', $submission->trace_id)
+        ->pluck('event_type')
+        ->all();
+
+    expect($eventTypes)->toContain(
+        'extraction_started',
+        'extraction_completed',
+        'classification_started',
+        'classification_completed',
+        'automatic_transition',
+        'review_completed',
+        'approval',
+    );
+    expect(array_count_values($eventTypes)['status_change'] ?? 0)->toBeGreaterThanOrEqual(2);
 });
