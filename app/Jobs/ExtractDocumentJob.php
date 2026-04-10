@@ -103,6 +103,19 @@ class ExtractDocumentJob implements ShouldQueue
 
         $document->extractedAssets()->delete();
 
+        if ($rows === []) {
+            $documentStatusMachine->transitionDocument(
+                $document->fresh(),
+                DocumentStatus::ExtractionFailed,
+                'extraction_failed',
+                'queue',
+                metadata: ['reason' => 'No assets were extracted from the document.'],
+                attributes: ['error_message' => 'No assets were extracted from the document.'],
+            );
+
+            return;
+        }
+
         foreach ($rows as $row) {
             $document->extractedAssets()->create([
                 'submission_id' => $document->submission_id,
