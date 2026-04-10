@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\StoreSubmission;
 use App\Enums\DocumentStatus;
-use App\Enums\SubmissionStatus;
 use App\Http\Requests\FilterSubmissionsRequest;
 use App\Http\Requests\StoreSubmissionRequest;
 use App\Jobs\ProcessSubmissionJob;
@@ -12,13 +12,11 @@ use App\Models\ExtractedAsset;
 use App\Models\Submission;
 use App\Services\DashboardStatsService;
 use App\Services\DocumentStatusMachine;
-use App\Services\DocumentStorageService;
 use App\Support\ClassificationOptions;
 use App\Support\SubmissionPortfolioCsv;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -81,37 +79,15 @@ class SubmissionController extends Controller
 
     public function store(
         StoreSubmissionRequest $request,
-        DocumentStorageService $documentStorageService,
+        StoreSubmission $storeSubmission,
     ): RedirectResponse {
         $uploadedDocuments = $request->file('documents', []);
         $documentsCount = count($uploadedDocuments);
-
-        /** @var Submission $submission */
-        $submission = DB::transaction(function () use ($request, $documentStorageService, $uploadedDocuments, $documentsCount): Submission {
-            $submission = Submission::query()->create([
-                'user_id' => $request->user()->id,
-                'email_lead' => $request->validated('email_lead'),
-                'observation' => $request->validated('observation'),
-                'status' => SubmissionStatus::Pending,
-                'documents_count' => $documentsCount,
-                'processed_documents_count' => 0,
-                'failed_documents_count' => 0,
-                'trace_id' => (string) Str::uuid(),
-            ]);
-
-            foreach ($uploadedDocuments as $uploadedDocument) {
-                $storedDocument = $documentStorageService->store($submission, $uploadedDocument);
-
-                $submission->documents()->create([
-                    ...$storedDocument,
-                    'status' => DocumentStatus::Uploaded,
-                    'extracted_assets_count' => 0,
-                    'trace_id' => $submission->trace_id,
-                ]);
-            }
-
-            return $submission;
-        });
+        $submission = $storeSubmission->handle(
+            $request->user(),
+            $request->validated(),
+            $uploadedDocuments,
+        );
 
         if (config('portfolio.processing.auto_dispatch', false)) {
             ProcessSubmissionJob::dispatch($submission->getKey());
