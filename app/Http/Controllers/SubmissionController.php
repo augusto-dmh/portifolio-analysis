@@ -23,7 +23,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class SubmissionController extends Controller
 {
@@ -186,15 +186,25 @@ class SubmissionController extends Controller
         ]);
     }
 
-    public function exportPortfolio(Submission $submission): StreamedResponse
+    public function exportPortfolio(Request $request, Submission $submission): HttpResponse
     {
         $this->authorize('view', $submission);
 
+        $format = $request->validate([
+            'format' => ['nullable', 'in:csv,xls'],
+        ])['format'] ?? 'csv';
         $submission = $this->loadSubmissionWorkspace($submission);
-        $filename = sprintf(
-            'submission-%s-portfolio.csv',
+        $filenameBase = sprintf(
+            'submission-%s-portfolio',
             Str::substr($submission->getKey(), 0, 8),
         );
+
+        if ($format === 'xls') {
+            return response($this->submissionPortfolioCsv->excelDocument($submission), 200, [
+                'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="'.$filenameBase.'.xls"',
+            ]);
+        }
 
         return response()->streamDownload(function () use ($submission): void {
             $stream = fopen('php://output', 'w');
@@ -211,7 +221,7 @@ class SubmissionController extends Controller
             }
 
             fclose($stream);
-        }, $filename, [
+        }, $filenameBase.'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }

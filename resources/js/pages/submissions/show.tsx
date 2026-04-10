@@ -380,17 +380,35 @@ export default function SubmissionShow({
                                     after the current review state.
                                 </CardDescription>
                             </div>
-                            <Button asChild variant="outline">
-                                <a
-                                    href={SubmissionController.exportPortfolio.url(
-                                        {
-                                            submission: submission.id,
-                                        },
-                                    )}
-                                >
-                                    Export CSV
-                                </a>
-                            </Button>
+                            <div className="flex flex-wrap gap-2">
+                                <Button asChild variant="outline">
+                                    <a
+                                        href={SubmissionController.exportPortfolio.url(
+                                            {
+                                                submission: submission.id,
+                                            },
+                                        )}
+                                    >
+                                        Export CSV
+                                    </a>
+                                </Button>
+                                <Button asChild variant="outline">
+                                    <a
+                                        href={SubmissionController.exportPortfolio.url(
+                                            {
+                                                submission: submission.id,
+                                            },
+                                            {
+                                                query: {
+                                                    format: 'xls',
+                                                },
+                                            },
+                                        )}
+                                    >
+                                        Export Excel
+                                    </a>
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
                             <AllocationChart

@@ -74,7 +74,7 @@ test('approve submission marks reviewed documents approved and completes submiss
     expect($submission->fresh()->status)->toBe(SubmissionStatus::Completed);
 });
 
-test('authorized users can view portfolio summary data and export a submission portfolio csv', function () {
+test('authorized users can view portfolio summary data and export a submission portfolio in csv and xls formats', function () {
     $owner = User::factory()->asAnalyst()->create();
     $admin = User::factory()->asAdmin()->create();
     $submission = Submission::factory()->processing()->for($owner)->create([
@@ -172,8 +172,33 @@ test('authorized users can view portfolio summary data and export a submission p
     ]);
     expect($lines)->toHaveCount(4);
 
+    $xlsResponse = $this->actingAs($owner)
+        ->get(route('submissions.export', [
+            'submission' => $submission,
+            'format' => 'xls',
+        ]));
+
+    $xlsResponse->assertOk();
+    $xlsResponse->assertDownload(sprintf('submission-%s-portfolio.xls', substr($submission->id, 0, 8)));
+    $xlsResponse->assertHeader('content-type', 'application/vnd.ms-excel; charset=UTF-8');
+
+    $xlsContent = $xlsResponse->getContent();
+
+    expect($xlsContent)
+        ->toStartWith("\xEF\xBB\xBF<!DOCTYPE html>")
+        ->toContain('<table>')
+        ->toContain('PETR4')
+        ->toContain('TESOURO SELIC');
+
     $this->actingAs($admin)
         ->get(route('submissions.export', $submission))
+        ->assertOk();
+
+    $this->actingAs($admin)
+        ->get(route('submissions.export', [
+            'submission' => $submission,
+            'format' => 'xls',
+        ]))
         ->assertOk();
 });
 
@@ -221,5 +246,12 @@ test('viewer cannot review or approve another submission', function () {
 
     $this->actingAs($viewer)
         ->get(route('submissions.export', $submission))
+        ->assertForbidden();
+
+    $this->actingAs($viewer)
+        ->get(route('submissions.export', [
+            'submission' => $submission,
+            'format' => 'xls',
+        ]))
         ->assertForbidden();
 });
