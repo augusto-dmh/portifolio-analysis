@@ -62,6 +62,28 @@ test('admin can update another user', function () {
         ->is_active->toBeTrue();
 });
 
+test('admin update requires an explicit active status', function () {
+    $admin = User::factory()->asAdmin()->create();
+    $user = User::factory()->asViewer()->create([
+        'is_active' => true,
+    ]);
+
+    $response = $this->actingAs($admin)->from(route('users.index'))
+        ->put(route('users.update', $user), [
+            'name' => 'Still Active',
+            'email' => 'still.active@example.com',
+            'role' => UserRole::Viewer->value,
+        ]);
+
+    $response->assertRedirect(route('users.index'));
+    $response->assertSessionHasErrors('is_active');
+
+    expect($user->fresh())
+        ->name->toBe($user->name)
+        ->email->toBe($user->email)
+        ->is_active->toBeTrue();
+});
+
 test('admin can deactivate another user', function () {
     $admin = User::factory()->asAdmin()->create();
     $user = User::factory()->asAnalyst()->create();
