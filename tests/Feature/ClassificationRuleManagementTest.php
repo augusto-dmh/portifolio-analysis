@@ -146,15 +146,12 @@ CSV
         ->exists())->toBeTrue();
 });
 
-test('classification rule import fails safely for invalid csv payloads', function () {
+test('classification rule import fails safely for invalid csv payloads', function (string $csv, string $expectedMessage) {
     $admin = User::factory()->asAdmin()->create();
 
     $invalidFile = UploadedFile::fake()->createWithContent(
         'rules.csv',
-        <<<'CSV'
-Chave,Classe,Estratégia,Tipo de Match
-TESOURO SELIC,Título Público,Renda Fixa Pós Fixada,unsupported
-CSV
+        $csv,
     );
 
     $this->actingAs($admin)
@@ -163,12 +160,43 @@ CSV
             'file' => $invalidFile,
         ])
         ->assertRedirect(route('classification-rules.index'))
-        ->assertSessionHasErrors('file');
+        ->assertSessionHasErrors([
+            'file' => $expectedMessage,
+        ]);
 
     expect(ClassificationRule::query()
         ->where('chave_normalized', 'TESOURO SELIC')
         ->doesntExist())->toBeTrue();
-});
+})->with([
+    'missing required headers' => [
+        <<<'CSV'
+Chave,Classe
+TESOURO SELIC,Título Público
+CSV,
+        'The CSV headers must include key, class, and strategy columns.',
+    ],
+    'unsupported match type' => [
+        <<<'CSV'
+Chave,Classe,Estratégia,Tipo de Match
+TESOURO SELIC,Título Público,Renda Fixa Pós Fixada,unsupported
+CSV,
+        'Row 2 contains an invalid match type [unsupported].',
+    ],
+    'missing required values' => [
+        <<<'CSV'
+Chave,Classe,Estratégia,Tipo de Match
+TESOURO SELIC,,Renda Fixa Pós Fixada,contains
+CSV,
+        'Row 2 must include key, class, and strategy values.',
+    ],
+    'invalid active flag' => [
+        <<<'CSV'
+Chave,Classe,Estratégia,Tipo de Match,Prioridade,Ativa
+TESOURO SELIC,Título Público,Renda Fixa Pós Fixada,contains,2,maybe
+CSV,
+        'Row 2 contains an invalid active flag [maybe].',
+    ],
+]);
 
 test('classification rules enforce normalized key uniqueness per match type', function () {
     $admin = User::factory()->asAdmin()->create();
@@ -191,50 +219,35 @@ test('classification rules enforce normalized key uniqueness per match type', fu
         ->assertSessionHasErrors('chave');
 });
 
-test('non admins cannot manage classification rules', function () {
+test('non admins cannot manage classification rules', function (Closure $request) {
     $analyst = User::factory()->asAnalyst()->create();
     $rule = ClassificationRule::factory()->create();
 
-    $this->actingAs($analyst)
-        ->get(route('classification-rules.index'))
-        ->assertForbidden();
-
-    $this->actingAs($analyst)
-        ->get(route('classification-rules.export'))
-        ->assertForbidden();
-
-    $this->actingAs($analyst)
-        ->post(route('classification-rules.import'), [
-            'file' => UploadedFile::fake()->createWithContent(
-                'rules.csv',
-                "Chave,Classe,Estratégia\nVALE3,Ações,Ações Brasil\n",
-            ),
-        ])
-        ->assertForbidden();
-
-    $this->actingAs($analyst)
-        ->post(route('classification-rules.store'), [
-            'chave' => 'VALE3',
-            'classe' => 'Ações',
-            'estrategia' => 'Ações Brasil',
-            'match_type' => MatchType::Exact->value,
-            'priority' => 0,
-            'is_active' => true,
-        ])
-        ->assertForbidden();
-
-    $this->actingAs($analyst)
-        ->put(route('classification-rules.update', $rule), [
-            'chave' => $rule->chave,
-            'classe' => $rule->classe,
-            'estrategia' => $rule->estrategia,
-            'match_type' => $rule->match_type->value,
-            'priority' => $rule->priority,
-            'is_active' => $rule->is_active,
-        ])
-        ->assertForbidden();
-
-    $this->actingAs($analyst)
-        ->delete(route('classification-rules.destroy', $rule))
-        ->assertForbidden();
-});
+    $request($this->actingAs($analyst), $rule)->assertForbidden();
+})->with([
+    'browse rules' => fn ($actingAs, $rule) => $actingAs->get(route('classification-rules.index')),
+    'export rules' => fn ($actingAs, $rule) => $actingAs->get(route('classification-rules.export')),
+    'import rules' => fn ($actingAs, $rule) => $actingAs->post(route('classification-rules.import'), [
+        'file' => UploadedFile::fake()->createWithContent(
+            'rules.csv',
+            "Chave,Classe,Estratégia\nVALE3,Ações,Ações Brasil\n",
+        ),
+    ]),
+    'store rules' => fn ($actingAs, $rule) => $actingAs->post(route('classification-rules.store'), [
+        'chave' => 'VALE3',
+        'classe' => 'Ações',
+        'estrategia' => 'Ações Brasil',
+        'match_type' => MatchType::Exact->value,
+        'priority' => 0,
+        'is_active' => true,
+    ]),
+    'update rules' => fn ($actingAs, $rule) => $actingAs->put(route('classification-rules.update', $rule), [
+        'chave' => $rule->chave,
+        'classe' => $rule->classe,
+        'estrategia' => $rule->estrategia,
+        'match_type' => $rule->match_type->value,
+        'priority' => $rule->priority,
+        'is_active' => $rule->is_active,
+    ]),
+    'delete rules' => fn ($actingAs, $rule) => $actingAs->delete(route('classification-rules.destroy', $rule)),
+]);
