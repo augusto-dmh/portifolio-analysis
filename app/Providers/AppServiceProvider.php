@@ -10,9 +10,12 @@ use App\Policies\DocumentPolicy;
 use App\Policies\SubmissionPolicy;
 use App\Policies\UserPolicy;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -33,6 +36,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->registerAuthorization();
+        $this->configureRateLimiting();
     }
 
     private function registerAuthorization(): void
@@ -71,5 +75,14 @@ class AppServiceProvider extends ServiceProvider
                 ->uncompromised()
             : null,
         );
+    }
+
+    private function configureRateLimiting(): void
+    {
+        RateLimiter::for('submission-uploads', function (Request $request) {
+            return Limit::perMinute(
+                (int) config('portfolio.upload.rate_limit_per_minute', 10),
+            )->by((string) ($request->user()?->getAuthIdentifier() ?? 'guest'));
+        });
     }
 }

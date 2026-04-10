@@ -113,6 +113,77 @@ test('submission validation rejects unsupported document types', function () {
     expect(Submission::query()->count())->toBe(0);
 });
 
+test('submission uploads are rate limited after the configured threshold', function () {
+    Storage::fake('local');
+
+    config()->set('portfolio.upload.rate_limit_per_minute', 1);
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('portfolio-1.pdf', 128, 'application/pdf'),
+        ],
+    ])->assertRedirect();
+
+    $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('portfolio-2.pdf', 128, 'application/pdf'),
+        ],
+    ])->assertTooManyRequests();
+});
+
+test('submission upload throttling is isolated per authenticated user', function () {
+    Storage::fake('local');
+
+    config()->set('portfolio.upload.rate_limit_per_minute', 1);
+
+    $firstAnalyst = User::factory()->asAnalyst()->create();
+    $secondAnalyst = User::factory()->asAnalyst()->create();
+
+    $this->actingAs($firstAnalyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('first-portfolio.pdf', 128, 'application/pdf'),
+        ],
+    ])->assertRedirect();
+
+    $this->actingAs($firstAnalyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('first-over-limit.pdf', 128, 'application/pdf'),
+        ],
+    ])->assertTooManyRequests();
+
+    $this->actingAs($secondAnalyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('second-portfolio.pdf', 128, 'application/pdf'),
+        ],
+    ])->assertRedirect();
+});
+
+test('submission upload throttling can not be bypassed by changing the client ip', function () {
+    Storage::fake('local');
+
+    config()->set('portfolio.upload.rate_limit_per_minute', 1);
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $this->actingAs($analyst)
+        ->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+        ->post(route('submissions.store'), [
+            'documents' => [
+                UploadedFile::fake()->create('first-network.pdf', 128, 'application/pdf'),
+            ],
+        ])->assertRedirect();
+
+    $this->actingAs($analyst)
+        ->withServerVariables(['REMOTE_ADDR' => '10.10.10.10'])
+        ->post(route('submissions.store'), [
+            'documents' => [
+                UploadedFile::fake()->create('second-network.pdf', 128, 'application/pdf'),
+            ],
+        ])->assertTooManyRequests();
+});
+
 test('non-admin users only see their own submissions in history while admins see all', function () {
     $owner = User::factory()->asAnalyst()->create(['name' => 'Owner Analyst']);
     $other = User::factory()->asAnalyst()->create(['name' => 'Other Analyst']);

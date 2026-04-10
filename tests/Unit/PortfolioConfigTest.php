@@ -3,6 +3,7 @@
 test('portfolio upload config matches the supported submission constraints', function () {
     expect(config('portfolio.upload.max_file_size_mb'))->toBe(50);
     expect(config('portfolio.upload.max_files_per_submission'))->toBe(20);
+    expect(config('portfolio.upload.rate_limit_per_minute'))->toBe(10);
     expect(config('portfolio.upload.accepted_extensions'))->toBe([
         'pdf',
         'png',
