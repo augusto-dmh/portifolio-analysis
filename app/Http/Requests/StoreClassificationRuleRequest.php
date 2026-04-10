@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Enums\MatchType;
 use App\Models\ClassificationRule;
+use App\Support\ClassificationOptions;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Str;
@@ -21,6 +22,8 @@ class StoreClassificationRuleRequest extends FormRequest
      */
     public function rules(): array
     {
+        $classificationOptions = new ClassificationOptions;
+
         return [
             'chave' => [
                 'required',
@@ -41,8 +44,8 @@ class StoreClassificationRuleRequest extends FormRequest
                     }
                 },
             ],
-            'classe' => ['required', 'string', 'max:255'],
-            'estrategia' => ['required', 'string', 'max:255'],
+            'classe' => ['required', 'string', 'max:255', Rule::in($classificationOptions->classes())],
+            'estrategia' => ['required', 'string', 'max:255', Rule::in($classificationOptions->strategies())],
             'match_type' => ['required', Rule::enum(MatchType::class)],
             'priority' => ['required', 'integer', 'between:0,999'],
             'is_active' => ['required', 'boolean'],
