@@ -14,9 +14,10 @@ use App\Models\Document;
 use App\Models\ProcessingEvent;
 use App\Models\Submission;
 use App\Models\User;
+use App\Services\AiCircuitBreaker;
 use App\Services\ClassificationService;
-use App\Services\CsvPortfolioExtractor;
 use App\Services\DocumentStatusMachine;
+use App\Services\SpreadsheetPortfolioExtractor;
 use App\Support\PortfolioNormalizer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
@@ -51,9 +52,10 @@ CSV);
     ]);
 
     app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
-        app(CsvPortfolioExtractor::class),
+        app(SpreadsheetPortfolioExtractor::class),
         app(DocumentStatusMachine::class),
         app(PortfolioNormalizer::class),
+        app(AiCircuitBreaker::class),
     );
 
     $document->refresh();
@@ -109,9 +111,10 @@ test('pdf documents are extracted via the ai extraction agent', function () {
     Storage::disk('local')->put($document->storage_path, 'fake pdf body');
 
     app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
-        app(CsvPortfolioExtractor::class),
+        app(SpreadsheetPortfolioExtractor::class),
         app(DocumentStatusMachine::class),
         app(PortfolioNormalizer::class),
+        app(AiCircuitBreaker::class),
     );
 
     $document->refresh();
@@ -216,9 +219,10 @@ CSV,
     Storage::disk('local')->assertExists($document->storage_path);
 
     app(ExtractDocumentJob::class, ['documentId' => $document->getKey()])->handle(
-        app(CsvPortfolioExtractor::class),
+        app(SpreadsheetPortfolioExtractor::class),
         app(DocumentStatusMachine::class),
         app(PortfolioNormalizer::class),
+        app(AiCircuitBreaker::class),
     );
 
     $document->refresh();

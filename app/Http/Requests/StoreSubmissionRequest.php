@@ -28,7 +28,6 @@ class StoreSubmissionRequest extends FormRequest
             'jpeg',
             'csv',
             'xlsx',
-            'xls',
         ]);
         $maxFilesPerSubmission = (int) config('portfolio.upload.max_files_per_submission', 20);
         $maxFileSizeInKilobytes = (int) config('portfolio.upload.max_file_size_mb', 50) * 1024;

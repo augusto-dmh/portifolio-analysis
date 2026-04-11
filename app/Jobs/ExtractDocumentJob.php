@@ -5,8 +5,9 @@ namespace App\Jobs;
 use App\Ai\Agents\ExtractionAgent;
 use App\Enums\DocumentStatus;
 use App\Models\Document;
-use App\Services\CsvPortfolioExtractor;
+use App\Services\AiCircuitBreaker;
 use App\Services\DocumentStatusMachine;
+use App\Services\SpreadsheetPortfolioExtractor;
 use App\Support\PortfolioNormalizer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -42,9 +43,10 @@ class ExtractDocumentJob implements ShouldQueue
     }
 
     public function handle(
-        CsvPortfolioExtractor $csvPortfolioExtractor,
+        SpreadsheetPortfolioExtractor $spreadsheetPortfolioExtractor,
         DocumentStatusMachine $documentStatusMachine,
         PortfolioNormalizer $portfolioNormalizer,
+        AiCircuitBreaker $aiCircuitBreaker,
     ): void {
         $document = Document::query()->with('submission')->findOrFail($this->documentId);
 
@@ -72,16 +74,24 @@ class ExtractDocumentJob implements ShouldQueue
 
         try {
             [$rows, $method] = match (true) {
-                $extension === 'csv' => [
-                    $csvPortfolioExtractor->extract($document),
-                    'php_csv',
+                in_array($extension, ['csv', 'xlsx', 'xls'], true) => [
+                    $spreadsheetPortfolioExtractor->extract($document),
+                    $extension === 'csv' ? 'php_csv' : 'php_excel',
                 ],
                 in_array($extension, ['png', 'jpg', 'jpeg'], true) => [
-                    $this->extractViaAiImage($document, $portfolioNormalizer),
+                    $this->extractViaAiImage(
+                        $document,
+                        $portfolioNormalizer,
+                        $aiCircuitBreaker,
+                    ),
                     'ai_multimodal',
                 ],
                 $extension === 'pdf' => [
-                    $this->extractViaAiDocument($document, $portfolioNormalizer),
+                    $this->extractViaAiDocument(
+                        $document,
+                        $portfolioNormalizer,
+                        $aiCircuitBreaker,
+                    ),
                     'ai_multimodal',
                 ],
                 default => throw new RuntimeException(
@@ -134,7 +144,9 @@ class ExtractDocumentJob implements ShouldQueue
             attributes: [
                 'extraction_method' => $method,
                 'extracted_assets_count' => count($rows),
-                'ai_model_used' => $method !== 'php_csv' ? config('portfolio.ai.extraction_model') : null,
+                'ai_model_used' => str_starts_with($method, 'php_')
+                    ? null
+                    : config('portfolio.ai.extraction_model'),
                 'error_message' => null,
             ],
         );
@@ -143,13 +155,18 @@ class ExtractDocumentJob implements ShouldQueue
     /**
      * @return array<int, array{ativo: string, posicao: string, ticker: ?string, posicao_numeric: ?float}>
      */
-    private function extractViaAiImage(Document $document, PortfolioNormalizer $normalizer): array
-    {
-        $response = (new ExtractionAgent)->prompt(
+    private function extractViaAiImage(
+        Document $document,
+        PortfolioNormalizer $normalizer,
+        AiCircuitBreaker $aiCircuitBreaker,
+    ): array {
+        $attachment = AiImage::fromStorage($document->storage_path, disk: 'local');
+
+        $response = $aiCircuitBreaker->run('extraction', fn () => (new ExtractionAgent)->prompt(
             'Extraia todas as posições de ativos desta imagem de carteira de investimentos.',
-            attachments: [AiImage::fromStorage($document->storage_path, disk: 'local')],
+            attachments: [$attachment],
             model: config('portfolio.ai.extraction_model'),
-        );
+        ));
 
         return $this->normalizeAiAssets($response['assets'] ?? [], $normalizer);
     }
@@ -157,13 +174,18 @@ class ExtractDocumentJob implements ShouldQueue
     /**
      * @return array<int, array{ativo: string, posicao: string, ticker: ?string, posicao_numeric: ?float}>
      */
-    private function extractViaAiDocument(Document $document, PortfolioNormalizer $normalizer): array
-    {
-        $response = (new ExtractionAgent)->prompt(
+    private function extractViaAiDocument(
+        Document $document,
+        PortfolioNormalizer $normalizer,
+        AiCircuitBreaker $aiCircuitBreaker,
+    ): array {
+        $attachment = AiDocument::fromStorage($document->storage_path, disk: 'local');
+
+        $response = $aiCircuitBreaker->run('extraction', fn () => (new ExtractionAgent)->prompt(
             'Extraia todas as posições de ativos deste documento de carteira de investimentos.',
-            attachments: [AiDocument::fromStorage($document->storage_path, disk: 'local')],
+            attachments: [$attachment],
             model: config('portfolio.ai.extraction_model'),
-        );
+        ));
 
         return $this->normalizeAiAssets($response['assets'] ?? [], $normalizer);
     }

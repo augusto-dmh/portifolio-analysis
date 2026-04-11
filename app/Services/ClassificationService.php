@@ -9,21 +9,24 @@ use App\Models\ClassificationRule;
 use App\Models\Document;
 use App\Models\ExtractedAsset;
 use App\Support\PortfolioNormalizer;
+use RuntimeException;
 
 class ClassificationService
 {
     public function __construct(
+        private readonly AiCircuitBreaker $aiCircuitBreaker,
         private readonly DeterministicClassifier $deterministicClassifier,
         private readonly PortfolioNormalizer $portfolioNormalizer,
     ) {}
 
     /**
-     * @return array{classified: int, unresolved: int}
+     * @return array{classified: int, unresolved: int, failure_reason: ?string}
      */
     public function classifyDocument(Document $document): array
     {
         $classified = 0;
         $unresolved = 0;
+        $failureReason = null;
 
         $document->loadMissing('extractedAssets');
 
@@ -43,7 +46,9 @@ class ClassificationService
         }
 
         if ($pendingAssets !== []) {
-            $aiResults = $this->classifyViaAi($pendingAssets);
+            $aiOutcome = $this->classifyViaAi($pendingAssets);
+            $aiResults = $aiOutcome['results'];
+            $failureReason = $aiOutcome['failure_reason'];
 
             foreach ($pendingAssets as $index => $asset) {
                 $result = $aiResults[$index] ?? null;
@@ -62,6 +67,7 @@ class ClassificationService
         return [
             'classified' => $classified,
             'unresolved' => $unresolved,
+            'failure_reason' => $failureReason,
         ];
     }
 
@@ -100,12 +106,13 @@ class ClassificationService
 
     /**
      * @param  ExtractedAsset[]  $assets
-     * @return array<int, array<string, mixed>>
+     * @return array{results: array<int, array<string, mixed>>, failure_reason: ?string}
      */
     private function classifyViaAi(array $assets): array
     {
         $batchSize = (int) config('portfolio.ai.classification_batch_size', 50);
         $results = [];
+        $failureReason = null;
 
         foreach (array_chunk($assets, $batchSize, true) as $chunk) {
             $lines = array_map(
@@ -115,10 +122,19 @@ class ClassificationService
 
             $prompt = implode("\n", $lines);
 
-            $response = (new ClassificationAgent)->prompt(
-                $prompt,
-                model: config('portfolio.ai.classification_model'),
-            );
+            try {
+                $response = $this->aiCircuitBreaker->run(
+                    'classification',
+                    fn () => (new ClassificationAgent)->prompt(
+                        $prompt,
+                        model: config('portfolio.ai.classification_model'),
+                    ),
+                );
+            } catch (RuntimeException $exception) {
+                $failureReason = $exception->getMessage();
+
+                break;
+            }
 
             $classifications = $response['classifications'] ?? [];
 
@@ -138,7 +154,10 @@ class ClassificationService
             }
         }
 
-        return $results;
+        return [
+            'results' => $results,
+            'failure_reason' => $failureReason,
+        ];
     }
 
     private function matchRule(ExtractedAsset $asset): ?ClassificationRule

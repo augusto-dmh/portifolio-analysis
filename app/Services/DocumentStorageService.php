@@ -65,7 +65,6 @@ class DocumentStorageService
                 'jpeg',
                 'csv',
                 'xlsx',
-                'xls',
             ]),
             true,
         );

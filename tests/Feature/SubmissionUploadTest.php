@@ -116,6 +116,21 @@ test('submission validation rejects unsupported document types', function () {
     expect(Submission::query()->count())->toBe(0);
 });
 
+test('submission validation rejects legacy xls documents at the upload boundary', function () {
+    Storage::fake('local');
+
+    $analyst = User::factory()->asAnalyst()->create();
+
+    $response = $this->actingAs($analyst)->post(route('submissions.store'), [
+        'documents' => [
+            UploadedFile::fake()->create('legacy-portfolio.xls', 32, 'application/vnd.ms-excel'),
+        ],
+    ]);
+
+    $response->assertSessionHasErrors('documents.0');
+    expect(Submission::query()->count())->toBe(0);
+});
+
 test('submission validation rejects documents larger than the configured limit', function () {
     Storage::fake('local');
 

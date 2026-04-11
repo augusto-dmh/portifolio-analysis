@@ -13,7 +13,7 @@ return [
         'max_file_size_mb' => (int) env('UPLOAD_MAX_FILE_SIZE_MB', 50),
         'max_files_per_submission' => (int) env('UPLOAD_MAX_FILES_PER_SUBMISSION', 20),
         'rate_limit_per_minute' => 10,
-        'accepted_extensions' => ['pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'xls'],
+        'accepted_extensions' => ['pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'],
     ],
     'processing' => [
         'auto_dispatch' => (bool) env('PORTFOLIO_AUTO_DISPATCH', false),
