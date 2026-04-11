@@ -4,7 +4,7 @@ import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const acceptedFileTypes = '.pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls';
+const acceptedFileTypes = '.pdf,.png,.jpg,.jpeg,.csv,.xlsx';
 
 export default function UploadDropzone({
     files,
@@ -104,7 +104,7 @@ export default function UploadDropzone({
                 </p>
                 <p className="mt-2 max-w-lg text-sm text-muted-foreground">
                     Upload up to {maxFiles} portfolio files. Accepted formats:
-                    PDF, PNG, JPG, JPEG, CSV, XLSX, XLS. Maximum 50 MB each.
+                    PDF, PNG, JPG, JPEG, CSV, XLSX. Maximum 50 MB each.
                 </p>
             </button>
 

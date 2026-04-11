@@ -11,7 +11,6 @@ test('portfolio upload config matches the supported submission constraints', fun
         'jpeg',
         'csv',
         'xlsx',
-        'xls',
     ]);
 });
 
@@ -32,5 +31,13 @@ test('portfolio processing config exposes queue names and retry defaults', funct
         'default' => 3,
         'extraction' => 3,
         'classification' => 3,
+    ]);
+});
+
+test('portfolio ai config exposes retry policy defaults', function () {
+    expect(config('portfolio.ai'))->toMatchArray([
+        'max_retries' => 2,
+        'retry_delay_ms' => 600,
+        'classification_batch_size' => 50,
     ]);
 });

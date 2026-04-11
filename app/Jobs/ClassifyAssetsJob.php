@@ -52,6 +52,8 @@ class ClassifyAssetsJob implements ShouldQueue
         $result = $classificationService->classifyDocument($document);
 
         if ($result['unresolved'] > 0) {
+            $reason = $result['failure_reason'] ?? 'Some assets could not be classified automatically.';
+
             $documentStatusMachine->transitionDocument(
                 $document->fresh(),
                 DocumentStatus::ClassificationFailed,
@@ -59,10 +61,10 @@ class ClassifyAssetsJob implements ShouldQueue
                 'queue',
                 metadata: [
                     'unresolved_assets' => $result['unresolved'],
-                    'reason' => 'AI classification is unavailable until laravel/ai is installed.',
+                    'reason' => $reason,
                 ],
                 attributes: [
-                    'error_message' => 'AI classification is unavailable until laravel/ai is installed.',
+                    'error_message' => $reason,
                 ],
             );
 
