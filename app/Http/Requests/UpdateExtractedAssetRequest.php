@@ -3,8 +3,10 @@
 namespace App\Http\Requests;
 
 use App\Models\ExtractedAsset;
+use App\Support\ClassificationOptions;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateExtractedAssetRequest extends FormRequest
 {
@@ -23,9 +25,11 @@ class UpdateExtractedAssetRequest extends FormRequest
      */
     public function rules(): array
     {
+        $classificationOptions = new ClassificationOptions;
+
         return [
-            'classe' => ['required', 'string', 'max:255'],
-            'estrategia' => ['required', 'string', 'max:255'],
+            'classe' => ['required', 'string', 'max:255', Rule::in($classificationOptions->classes())],
+            'estrategia' => ['required', 'string', 'max:255', Rule::in($classificationOptions->strategies())],
         ];
     }
 

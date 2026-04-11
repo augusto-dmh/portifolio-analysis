@@ -222,6 +222,33 @@ test('submission approval requires every reviewable asset to be reviewed', funct
         ->assertSessionHasErrors('approval');
 });
 
+test('asset review validation rejects unsupported classes and strategies', function () {
+    $analyst = User::factory()->asAnalyst()->create();
+    $submission = Submission::factory()->processing()->for($analyst)->create([
+        'documents_count' => 1,
+    ]);
+    $document = Document::factory()->for($submission)->create([
+        'status' => DocumentStatus::ReadyForReview,
+    ]);
+    $asset = ExtractedAsset::factory()->for($document)->create([
+        'submission_id' => $submission->id,
+        'classe' => 'COE',
+        'estrategia' => 'Outros',
+    ]);
+
+    $this->actingAs($analyst)
+        ->from(route('submissions.show', $submission))
+        ->put(route('extracted-assets.update', ['asset' => $asset]), [
+            'classe' => 'Classe inventada',
+            'estrategia' => 'Estratégia inventada',
+        ])
+        ->assertRedirect(route('submissions.show', $submission))
+        ->assertSessionHasErrors([
+            'classe',
+            'estrategia',
+        ]);
+});
+
 test('viewer cannot review or approve another submission', function () {
     $owner = User::factory()->asAnalyst()->create();
     $viewer = User::factory()->asViewer()->create();

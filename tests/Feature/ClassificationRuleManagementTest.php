@@ -219,6 +219,39 @@ test('classification rules enforce normalized key uniqueness per match type', fu
         ->assertSessionHasErrors('chave');
 });
 
+test('classification rule validation rejects unsupported class and strategy values', function () {
+    $admin = User::factory()->asAdmin()->create();
+    $rule = ClassificationRule::factory()->create([
+        'created_by' => $admin->id,
+    ]);
+
+    $this->actingAs($admin)
+        ->from(route('classification-rules.index'))
+        ->post(route('classification-rules.store'), [
+            'chave' => 'LCI XP',
+            'classe' => 'Classe inventada',
+            'estrategia' => 'Ações Brasil',
+            'match_type' => MatchType::Contains->value,
+            'priority' => 5,
+            'is_active' => true,
+        ])
+        ->assertRedirect(route('classification-rules.index'))
+        ->assertSessionHasErrors('classe');
+
+    $this->actingAs($admin)
+        ->from(route('classification-rules.index'))
+        ->put(route('classification-rules.update', $rule), [
+            'chave' => $rule->chave,
+            'classe' => 'Ações',
+            'estrategia' => 'Estratégia inventada',
+            'match_type' => $rule->match_type->value,
+            'priority' => $rule->priority,
+            'is_active' => $rule->is_active,
+        ])
+        ->assertRedirect(route('classification-rules.index'))
+        ->assertSessionHasErrors('estrategia');
+});
+
 test('non admins cannot manage classification rules', function (Closure $request) {
     $analyst = User::factory()->asAnalyst()->create();
     $rule = ClassificationRule::factory()->create();
